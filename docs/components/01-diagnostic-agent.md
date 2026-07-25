@@ -49,14 +49,14 @@ flowchart LR
         OLLAMA["Ollama\nqwen2.5:7b\n(OpenAI-compatible client)"]
     end
 
-    DEMO -->|investigate()| LOOP
+    DEMO -->|"investigate()"| LOOP
     LOOP <-->|chat.completions.create| OLLAMA
     EXEC --> T1
     EXEC --> T2
     EXEC --> T3
     EXEC --> T4
     T1 & T2 & T3 & T4 -->|ToolResult| EXEC
-    LOOP -->|DiagnosisResult\n+ full trace| DEMO
+    LOOP -->|"DiagnosisResult\n+ full trace"| DEMO
 ```
 
 ---
@@ -67,8 +67,8 @@ flowchart LR
 sequenceDiagram
     participant Caller
     participant Agent as DiagnosticAgent
-    participant LLM as Ollama (qwen2.5:7b)
-    participant Tool as Tool (e.g. logcat_parser)
+    participant LLM as "Ollama (qwen2.5:7b)"
+    participant Tool as "Tool (e.g. logcat_parser)"
 
     Caller->>Agent: investigate(logcat_path, dmesg_path, description)
     Agent->>Agent: build messages = [SYSTEM_PROMPT, user investigation request]

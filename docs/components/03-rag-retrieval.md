@@ -43,7 +43,7 @@ flowchart TD
         QUERY --> EMB2 --> SEARCH --> SCORE --> RESULT
     end
 
-    WRITE -.faiss.read_index\nat RAGRetrieverTool.__init__.-> SEARCH
+    WRITE -.->|"faiss.read_index()\nat RAGRetrieverTool.__init__"| SEARCH
 ```
 
 ---

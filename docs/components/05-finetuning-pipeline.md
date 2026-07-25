@@ -26,7 +26,7 @@ flowchart TD
         TEACHOUT["teacher_outputs.jsonl"]
         TASKS --> GROQ --> TEACHOUT
     end
-    TEACHOUT -.can be folded into.-> SFTDATA
+    TEACHOUT -.->|"can be folded into"| SFTDATA
 
     subgraph SFTStage["Stage 1: QLoRA SFT (train_sft.py)"]
         BASE["Qwen2.5-7B-Instruct\n(HuggingFace)"]
@@ -53,8 +53,8 @@ flowchart TD
     CKPT2 --> MERGE
 
     WANDB["WandB\n(loss curves, hyperparams)"]
-    TRAIN1 -.logs to.-> WANDB
-    TRAIN2 -.logs to.-> WANDB
+    TRAIN1 -.->|"logs to"| WANDB
+    TRAIN2 -.->|"logs to"| WANDB
 
     FINAL --> EVALHARNESS["DiagnosticEval\n(see 06-eval-harness.md)"]
 ```

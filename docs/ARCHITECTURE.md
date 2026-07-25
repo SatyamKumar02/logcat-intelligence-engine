@@ -101,7 +101,7 @@ flowchart TD
     end
 
     Input --> AG
-    OLLAMA -.serves.-> AG
+    OLLAMA -.->|serves| AG
     AG --> Diag["Diagnosis\nroot cause + reasoning + confidence"]
     Diag --> HR
     Diag --> TL

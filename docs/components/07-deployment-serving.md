@@ -32,12 +32,12 @@ flowchart TD
     subgraph Client["Any OpenAI-compatible client"]
         AGENT["DiagnosticAgent\n(same code as against Ollama!)"]
     end
-    AGENT -->|base_url=http://diagnostic-server:8000/v1| API
+    AGENT -->|"base_url=http://diagnostic-server:8000/v1"| API
 
     subgraph Compose["docker-compose.yml"]
         SVC["diagnostic-server service\nGPU reservation, healthcheck"]
         SIDECAR["trace-recorder sidecar\n(auto_trigger.py --watch-dir)"]
-        SVC -.depends_on: healthy.-> SIDECAR
+        SVC -.->|"depends_on: healthy"| SIDECAR
     end
 ```
 
