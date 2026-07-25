@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+
+data/raw/
+data/processed/*.faiss
+data/processed/case_metadata.jsonl
+outputs/
+*.log
+eval_results*.json
+eval_results*.md
+
+.ipynb_checkpoints/

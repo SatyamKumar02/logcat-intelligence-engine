@@ -1,0 +1,34 @@
+# Local (Mac / Apple Silicon) requirements — Phases 0-3.
+# bitsandbytes and vllm are CUDA-only and intentionally excluded here;
+# see requirements.cloud.txt for the Kaggle/Colab-only additions used in Phase 4/5.
+
+# Core ML
+torch>=2.2.0
+transformers>=4.40.0
+peft>=0.10.0
+trl>=0.8.0
+accelerate>=0.29.0
+datasets>=2.18.0
+
+# Inference client (points at local Ollama or a cloud vLLM server)
+openai>=1.14.0
+
+# Evaluation
+rouge-score>=0.1.2
+nltk>=3.8.1
+
+# Embeddings and RAG
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0
+
+# Tracing and logging
+wandb>=0.16.6
+jsonlines>=4.0.0
+
+# Utilities
+numpy>=1.26.0
+pandas>=2.2.0
+tqdm>=4.66.0
+click>=8.1.7
+pydantic>=2.6.0
+python-dotenv>=1.0.1

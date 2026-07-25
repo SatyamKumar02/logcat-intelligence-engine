@@ -1,0 +1,6 @@
+# Additional requirements for the CUDA-only steps (Phase 4 fine-tuning, Phase 5 vLLM serving).
+# Install these ON TOP of requirements.txt inside a Kaggle/Colab/RunPod notebook — they do not
+# install on Apple Silicon.
+
+bitsandbytes>=0.43.0
+vllm>=0.4.0
