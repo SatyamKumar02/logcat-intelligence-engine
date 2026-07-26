@@ -62,7 +62,7 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 | 2 — Training data pipeline | done | TraceRecorder/Converter, DPOPairGenerator, dedup+quality filter, stats — verified end-to-end on 20 real traces (7 train / 2 val SFT, 1 DPO demo pair) |
 | 3 — Eval harness | done | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks — baseline run: 90% category accuracy (see caveats in decisions log) |
 | 4 — Fine-tuning (cloud GPU) | code ready, not yet run | QLoRA SFT/DPO scripts + Groq distillation + Kaggle notebook written and locally verified (API signatures, tokenizer/data fit); actual GPU training requires the user to run `notebooks/04_finetune_kaggle.ipynb` on Kaggle |
-| 5 — Deployment | not started | Airgapped Docker + vLLM; local smoke test, real test on cloud |
+| 5 — Deployment | mostly verified | Dockerfile.serve (lints clean), docker-compose.yml (config-validated), health.py/client.py (tested against real servers, Ollama standing in for vLLM) — real `docker build`+`run` needs a CUDA host + Phase 4's merged model, neither exists yet |
 | 6 — Flywheel | not started | Auto-retrain trigger, regression gate, version tracking |
 | Stretch — Real AOSP data | not started | Deferred until synthetic pipeline is proven end-to-end |
 
@@ -81,22 +81,29 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 - **2026-07-26**: Important caveat on the 90% baseline — it is NOT comparable to the capstone doc's ~30% zero-shot expectation, and this was root-caused rather than reported uncritically. Two contamination sources identified: (1) the eval snippets contain near-literal category keywords (e.g. the literal string "GPU fault" in the gpu_fault task), making category recognition close to keyword matching rather than hard reasoning; (2) `data/processed/seed_cases.jsonl` (RAG corpus) and `data/eval/tasks.py` were both hand-written by the same author from the same category list at the same time — e.g. eval_001's description is a near-paraphrase of `seed_anr_01`'s — so RAG retrieval was handing back near-answers. The one miss (`eval_010`, memory_leak predicted as oom) is a genuinely defensible ambiguity, not a bug. Full writeup in `docs/components/06-eval-harness.md` §7. **Actionable fix plan written separately**: `docs/EVAL_SET_IMPROVEMENT_PLAN.md` (not yet executed).
 - **2026-07-26**: Phase 4 code written (per user's explicit choice: build the code now, defer the eval fix to its own tracked plan rather than blocking on it). `src/finetune/qlora_config.py`, `train_sft.py`, `train_dpo.py`, `distill.py` (Groq teacher), `merge_adapter.py`, and `notebooks/04_finetune_kaggle.ipynb` are all written. **Cannot be executed on this Mac** — QLoRA needs `bitsandbytes` + CUDA, unavailable on Apple Silicon. What WAS verified locally without a GPU: (1) `scripts/validate_finetune_data.py` loaded the real Qwen2.5-7B-Instruct tokenizer and confirmed all SFT/DPO records fit `max_seq_length=4096` (SFT train: 1146-2299 tokens; SFT val: 1505-1777; DPO: 84) — zero problems found; (2) a real API mismatch was caught via `inspect.signature()` against the installed `trl==1.9.0` — `SFTTrainer` no longer accepts `dataset_text_field`/`max_seq_length` directly, they now live on a separate `SFTConfig` — fixed before it could waste Kaggle GPU time; `DPOConfig`/`DPOTrainer`'s fields were verified the same way and matched what was already written. **Next physical action**: user runs `notebooks/04_finetune_kaggle.ipynb` on Kaggle (needs HF_TOKEN + WANDB_API_KEY secrets set there) — this is the first phase requiring the user's own hands-on execution, not something I can complete end-to-end myself.
 - **2026-07-26**: Given the current SFT set is only 7 train records and DPO only 1 pair, the first Kaggle run should be understood as "does the pipeline work end to end," not "did the model get better" — both the notebook and `docs/components/05-finetuning-pipeline.md` say this explicitly so the result isn't over-interpreted.
+- **2026-07-26**: Phase 5 built while Phase 4 is still unrun (per user's explicit choice: skipping the Kaggle physical action for now doesn't block later phases — no code in Phase 5/6 depends on Phase 4's specific output in a way that would need redoing). `docker/Dockerfile.serve`, `docker/requirements.serve.txt`, `docker/docker-compose.yml`, `src/serve/health.py`, `src/serve/client.py` all written. Docker-compose currently has only the `diagnostic-server` service — the `trace-recorder` sidecar depends on Phase 6 code that doesn't exist yet, so it wasn't added prematurely.
+- **2026-07-26**: Phase 5 verification, precisely: no NVIDIA GPU passthrough on this Mac's Docker Desktop and no real merged model yet, so the actual `docker build`+`run`+live-inference loop was NOT executed. What WAS: `docker buildx build --check` linted `Dockerfile.serve` with zero warnings (no image pull needed); `docker compose config` resolved `docker-compose.yml` correctly (GPU reservation, healthcheck, bind mount, build-arg interpolation all well-formed); `health.py`'s `check_health()`/`check_ready()` were run against 4 real scenarios (live Ollama completion, a hand-rolled mock 200 `/health` server, a real 404, a dead port) and all four returned the expected result; `client.py` was run against local Ollama and produced a coherent diagnosis — proving the literal code that will later hit a deployed vLLM server already works against a real OpenAI-compatible backend today.
 
 ## What's Next
 
-Phase 0, 1, 2, and 3 are done and verified; Phase 4's code is written and
-locally verified but not yet run. Two independent next actions, either
-order:
+Phase 0, 1, 2, 3, and 5 are done/verified to the extent possible without a
+GPU; Phase 4's code is written and locally verified but not yet run.
+Independent next actions, any order:
 
 1. **Run Phase 4 for real**: user creates HF/WandB/Groq/Kaggle accounts (see
    checklist above), uploads/opens `notebooks/04_finetune_kaggle.ipynb` on
    Kaggle, enables the free T4 GPU, sets the two secrets, and runs it. This
    is the first phase in the project that genuinely needs the user's own
-   execution — I cannot run cloud GPU code myself.
+   execution — I cannot run cloud GPU code myself. Once it produces a real
+   `outputs/merged-diagnostic-v1`, Phase 5's Docker image can actually be
+   built and run for the first time (on a CUDA host, e.g. the same Kaggle
+   notebook or RunPod).
 2. **Fix the eval set** per `docs/EVAL_SET_IMPROVEMENT_PLAN.md` — ideally
    before trusting whatever accuracy number comes out of evaluating the
    fine-tuned checkpoint, since the current 10-task eval set is contaminated
    (see the Phase 3 decision above).
-
-After either/both: Phase 5 (Deployment — airgapped Docker + vLLM) is the
-next phase after Phase 4 actually produces a merged model to serve.
+3. **Phase 6 (Flywheel)**: `auto_trigger.py`, `regression_gate.py`,
+   `version_tracker.py`, `weekly_retrain.sh` — mostly Mac-local Python logic
+   (file counting, threshold comparisons) that can be built and unit-tested
+   with synthetic numbers without waiting on Phase 4/5 actually running for
+   real, similar to how Phase 5 was built ahead of Phase 4.

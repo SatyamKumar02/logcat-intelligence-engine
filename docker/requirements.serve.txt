@@ -1,0 +1,10 @@
+# Inference-server-only dependencies -- built into docker/Dockerfile.serve.
+# Deliberately separate from requirements.txt/requirements.cloud.txt: the
+# serving image should be as small and dependency-light as possible (no
+# training libs like peft/trl/bitsandbytes at all -- the model is already
+# merged by the time it's served, see src/finetune/merge_adapter.py).
+
+vllm==0.4.2
+openai==1.14.0
+fastapi==0.110.0
+uvicorn==0.29.0

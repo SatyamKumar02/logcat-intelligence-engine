@@ -1,11 +1,31 @@
 # Component: Deployment & Serving
 
-**Status: PLANNED (Phase 5)** — target files: `docker/Dockerfile.serve`, `docker/docker-compose.yml`, `src/serve/health.py`, `src/serve/client.py`
+**Status: MOSTLY VERIFIED** — `docker/Dockerfile.serve`, `docker/requirements.serve.txt`, `docker/docker-compose.yml`, `src/serve/health.py`, `src/serve/client.py`
 
 Serves the fine-tuned, merged model behind an OpenAI-compatible API, inside
 a Docker image that needs **zero network access at runtime**. This is the
 "production awareness" component — the difference between a model that
 works in a notebook and one that can run in a restricted/secure environment.
+
+**What "mostly verified" means, precisely:** this Mac has Docker Desktop but
+no NVIDIA GPU passthrough, and Phase 4 hasn't produced a real merged model
+yet (see `docs/components/05-finetuning-pipeline.md`) — so the one thing
+that couldn't be tested is an actual `docker build` + `docker run` serving
+real weights. Everything else genuinely was:
+- `Dockerfile.serve` passed `docker buildx build --check` (a real lint
+  against buildkit, no image pull needed) with zero warnings.
+- `docker-compose.yml` was resolved with `docker compose config` — confirms
+  the GPU reservation, healthcheck, bind mount, and build-arg
+  interpolation are all syntactically correct.
+- `src/serve/health.py`'s `check_health()` and `check_ready()` were run
+  against **real servers**: a live chat completion against local Ollama
+  (genuinely OpenAI-compatible, standing in for vLLM), a hand-rolled mock
+  HTTP server returning a real 200 on `/health`, a real 404 (Ollama has no
+  `/health` path), and a dead port — all four returned the expected result.
+- `src/serve/client.py` was run against local Ollama and produced a
+  coherent diagnostic response — the literal code that will later point at
+  a deployed vLLM server, unmodified, already works against a real
+  OpenAI-compatible backend today.
 
 ---
 
@@ -36,8 +56,8 @@ flowchart TD
 
     subgraph Compose["docker-compose.yml"]
         SVC["diagnostic-server service\nGPU reservation, healthcheck"]
-        SIDECAR["trace-recorder sidecar\n(auto_trigger.py --watch-dir)"]
-        SVC -.->|"depends_on: healthy"| SIDECAR
+        SIDECAR["trace-recorder sidecar\n(Phase 6 -- not yet added)"]
+        SVC -.->|"future depends_on: healthy"| SIDECAR
     end
 ```
 
@@ -104,31 +124,54 @@ weights without touching the Dockerfile itself.
 
 ## 4. docker-compose Orchestration
 
-Two services:
+Currently one service:
 
-- **`diagnostic-server`** — the vLLM container, with a `deploy.resources.reservations.devices` GPU reservation and a `healthcheck` block so dependent services wait for `/health` to actually respond before starting.
-- **`trace-recorder`** (optional sidecar) — runs `auto_trigger.py --watch-dir /app/data/raw` (see [08-flywheel.md](08-flywheel.md)) pointed at the same served model via `VLLM_BASE_URL`, so newly investigated cases keep flowing into the trace corpus even in a deployed environment, not just during local development.
+- **`diagnostic-server`** — the vLLM container, with a `deploy.resources.reservations.devices` GPU reservation and a `healthcheck` block (`curl http://localhost:8000/health`, matching Docker's own `HEALTHCHECK` in `Dockerfile.serve`) so anything that later depends on this service can wait for `service_healthy` instead of just "container started."
 
-`depends_on: condition: service_healthy` is the mechanism that prevents the
-sidecar from hammering a vLLM instance that's still loading weights into GPU
-memory (which, for a 7B model, is not instantaneous).
+**Not yet added:** a `trace-recorder` sidecar running `auto_trigger.py --watch-dir /app/data/raw` (see [08-flywheel.md](08-flywheel.md)) pointed at the served model, so newly investigated cases keep flowing into the trace corpus in a deployed environment, not just during local development. That code doesn't exist until Phase 6 — adding the sidecar service is Phase 6's job, not Phase 5's.
 
 ---
 
-## 5. Health Check & Smoke Test
+## 5. Health Check & Smoke Test — What Was Actually Verified
+
+This Mac has Docker Desktop but no NVIDIA GPU passthrough, and there's no
+real merged model yet (Phase 4 hasn't run on Kaggle) — so the full
+`docker build && docker run` + live inference loop below is written and
+correct, but has **not** been executed end to end. What was:
+
+```bash
+# Verified: Dockerfile lints clean (no image pull, no build)
+docker buildx build --check -f docker/Dockerfile.serve .
+# -> "Check complete, no warnings found."
+
+# Verified: compose file resolves correctly (GPU reservation, healthcheck,
+# bind mount, build-arg interpolation all present and well-formed)
+docker compose -f docker/docker-compose.yml config
+
+# Verified: health.py's check_health()/check_ready() against real servers
+# (live Ollama completion, a mock 200 /health endpoint, a real 404, a dead
+# port) -- all four returned the expected result, see
+# docs/components/07-deployment-serving.md's status header above.
+
+# Verified: client.py produces a coherent diagnosis when pointed at Ollama
+python -m src.serve.client --base-url http://localhost:11434/v1 --model qwen2.5:7b
+```
+
+The real build/run, on a CUDA host once Phase 4 produces a merged model:
 
 ```bash
 docker build --build-arg MODEL_PATH=./outputs/merged-diagnostic-v1 -f docker/Dockerfile.serve -t logcat-ie-serve:v1 .
-docker-compose -f docker/docker-compose.yml up -d
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/v1/chat/completions -d '{...}'
+docker compose -f docker/docker-compose.yml up -d
+python -m src.serve.health --base-url http://localhost:8000 --model diagnostic-v1
+python -m src.serve.client --base-url http://localhost:8000/v1 --model diagnostic-v1
 ```
 
-The health check endpoint (`src/serve/health.py`, planned) is what both
-Docker's own `HEALTHCHECK` directive and docker-compose's
-`healthcheck:`/`depends_on: condition: service_healthy` rely on — a cheap,
-fast way to distinguish "container is up" from "model is actually loaded and
-ready to answer," which for a 7B model on a T4 is not the same instant.
+`src/serve/health.py` is a separate operator/monitoring tool, not what
+Docker's own `HEALTHCHECK` directive invokes (that's a plain `curl` against
+vLLM's built-in `/health` endpoint, see `Dockerfile.serve`) — `health.py`
+adds a second, stronger check (`check_ready()`, a real chat completion)
+because a container can report healthy while the 7B model is still loading
+into GPU memory, which for vLLM is not instantaneous.
 
 ---
 
@@ -144,3 +187,11 @@ ready to answer," which for a 7B model on a T4 is not the same instant.
   produces a new tagged image (`logcat-ie-serve:vN`) rather than mutating a
   running container, which is what makes the regression gate (rebuild only
   if eval passes) meaningful."
+- "I don't have GPU passthrough on this machine, so I couldn't run the real
+  container — but I didn't just leave it untested. `docker buildx build
+  --check` lints the Dockerfile for real, `docker compose config` resolves
+  the whole compose file including the GPU reservation and build-arg
+  interpolation, and I proved the health-check and client code against real
+  servers — Ollama standing in for vLLM, since both speak the same
+  OpenAI-compatible API. Everything that *can* be verified without a GPU,
+  was."

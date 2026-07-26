@@ -90,7 +90,7 @@ flowchart TD
         RG{"Regression Gate\naccuracy threshold"}
     end
 
-    subgraph Deploy["Deployment — PLANNED (Phase 5)"]
+    subgraph Deploy["Deployment — MOSTLY VERIFIED (Phase 5)"]
         VLLM["vLLM Server\nOpenAI-compatible"]
         DOCK["Airgapped Docker\nno internet required"]
         VLLM --> DOCK
@@ -276,10 +276,11 @@ logcat-intelligence-engine/
 │   ├── training/                # TraceRecorder, DPOPairGenerator, dedup, stats — IMPLEMENTED
 │   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge, report — IMPLEMENTED
 │   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — CODE READY, not yet run on GPU
-│   ├── serve/                  # health check, example client — PLANNED (Phase 5)
+│   ├── serve/                   # health check, example client — verified against real servers (Ollama stand-in)
 │   └── flywheel/               # auto_trigger, regression_gate, version_tracker — PLANNED (Phase 6)
 ├── scripts/                     # validate_env, generate_synthetic_logs, build_case_index, run_agent_demo
-└── docker/                      # Dockerfile.train, Dockerfile.serve, docker-compose.yml — PLANNED (Phase 5)
+└── docker/                      # Dockerfile.serve (lints clean), requirements.serve.txt, docker-compose.yml (config-validated)
+                                  # (no Dockerfile.train -- Kaggle notebooks fill that role instead, see notebooks/04_finetune_kaggle.ipynb)
 ```
 
 ---

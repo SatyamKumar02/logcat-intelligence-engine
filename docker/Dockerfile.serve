@@ -1,0 +1,44 @@
+# docker/Dockerfile.serve
+# Airgapped inference server -- no internet access required after build.
+#
+# NOT buildable/runnable on this Mac: the base image is linux/amd64 CUDA,
+# and there's no fine-tuned model yet (Phase 4 hasn't been run on Kaggle --
+# see docs/components/05-finetuning-pipeline.md). Validated locally with
+# `docker buildx build --check` (Dockerfile lint, no pull/build) instead of
+# a full build. Real build + run happens on a CUDA host (Kaggle/RunPod) once
+# MODEL_PATH points at a real merged model directory.
+
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    python3.11 python3-pip git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies (cached layer, independent of model weights below)
+COPY docker/requirements.serve.txt .
+RUN pip install --no-cache-dir -r requirements.serve.txt
+
+# Copy model weights (baked in at build time -- this is what makes the
+# image airgapped: no HuggingFace Hub / PyPI access needed at runtime).
+# Build with: docker build --build-arg MODEL_PATH=./outputs/merged-diagnostic-v1 ...
+ARG MODEL_PATH=./outputs/merged-diagnostic-v1
+COPY ${MODEL_PATH} /models/diagnostic-v1
+
+# Copy health check and example client
+COPY src/serve/ /app/serve/
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python3", "-m", "vllm.entrypoints.openai.api_server", \
+     "--model", "/models/diagnostic-v1", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--max-model-len", "4096", \
+     "--gpu-memory-utilization", "0.90", \
+     "--disable-log-requests"]

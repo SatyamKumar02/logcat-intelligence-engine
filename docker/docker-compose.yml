@@ -1,0 +1,37 @@
+# docker/docker-compose.yml
+# Local orchestration for the airgapped inference server.
+#
+# NOT runnable on this Mac (no NVIDIA GPU passthrough on Docker Desktop for
+# Mac) -- validated with `docker compose config` instead, which checks YAML
+# structure and variable interpolation without starting anything.
+#
+# The Phase 6 flywheel's trace-recorder sidecar (auto_trigger.py --watch-dir)
+# isn't added here yet -- that code doesn't exist until Phase 6.
+
+services:
+  diagnostic-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.serve
+      args:
+        MODEL_PATH: ${MODEL_PATH:-./outputs/merged-diagnostic-v1}
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ../data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
