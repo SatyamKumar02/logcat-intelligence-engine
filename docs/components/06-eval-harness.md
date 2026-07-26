@@ -1,6 +1,6 @@
 # Component: Eval Harness
 
-**Status: PLANNED (Phase 3)** — target files: `src/eval/diagnostic_eval.py`, `src/eval/trajectory_grader.py`, `src/eval/llm_judge.py`, `data/eval/tasks.py`
+**Status: IMPLEMENTED** — `src/eval/diagnostic_eval.py`, `src/eval/trajectory_grader.py`, `src/eval/llm_judge.py`, `src/eval/report.py`, `data/eval/tasks.py`, `scripts/run_eval.py`
 
 The measurement system. Everything downstream — "did fine-tuning help,"
 "is it safe to deploy a new model version" — depends on this component
@@ -165,14 +165,77 @@ EvalSummary(
 *why* the accuracy is what it is, useful for debugging a bad training run
 without re-running the whole eval from scratch.
 
-`report.py` (planned) renders this into a Markdown report
-(`eval_results_baseline.md`, `eval_results_finetuned.md`) — a durable,
-diffable artifact that becomes a portfolio piece showing the before/after
-accuracy delta.
+`report.py` renders this into a Markdown report (`eval_results_baseline.md`,
+`eval_results_finetuned.md` once Phase 4 exists) — a durable, diffable
+artifact that becomes a portfolio piece showing the before/after accuracy
+delta.
 
 ---
 
-## 7. How to Explain This Component in an Interview
+## 7. Verified Baseline Run (2026-07-26) — and Why 90% ≠ the Spec's ~30%
+
+`scripts/run_eval.py` ran the zero-shot `qwen2.5:7b` agent (no fine-tuning)
+against all 10 labeled tasks, with the LLM judge enabled:
+
+```
+Total tasks:          10
+Category accuracy:    90.0%
+Avg keyword hit rate: 0.87
+Avg confidence:       0.90
+Avg trajectory score: 1.00
+Avg judge score:      8.4 / 10
+```
+
+This is dramatically higher than the capstone doc's ~30% zero-shot baseline
+expectation — worth being precise about *why*, rather than reporting 90% as
+an unqualified win:
+
+1. **The eval snippets are not adversarial.** Each `logcat_snippet`/
+   `dmesg_snippet` contains an almost literal category signature (`"ANR in
+   com.example.myapp"`, `"GPU fault"`, `"BUG: spinlock"`,
+   `"OutOfMemoryError"`) — recognizing the category from these snippets is
+   close to a keyword-matching problem, not a hard diagnostic-reasoning
+   problem. A real bugreport's signal is buried in thousands of unrelated
+   lines; these 3-line snippets are not.
+2. **RAG-corpus / eval-set leakage.** `data/processed/seed_cases.jsonl` and
+   `data/eval/tasks.py` were both hand-written by the same author, working
+   from the same category list, at the same time — e.g. eval_001's
+   description ("App freezes and shows ANR dialog after **5 seconds** of
+   use") is nearly a word-for-word paraphrase of `seed_anr_01` ("App freezes
+   and shows ANR dialog after **several seconds** of use, input dispatching
+   times out"). `rag_retriever` reliably retrieves the near-exact answer
+   for most tasks, which is a form of eval contamination — the seed corpus
+   wasn't built independently from the eval set the way a real held-out
+   test set would be.
+3. **Only 1 miss, and it's a genuinely defensible one, not a bug:**
+   `eval_010` (expected `memory_leak`) was predicted `oom` — the snippet's
+   last line is literally `"OutOfMemoryError: Java heap space"` (the *same*
+   terminal signal `eval_003`'s `oom` task uses), and nothing in a single
+   snapshot distinguishes "this heap growth is a leak" from "this heap
+   growth is legitimate load that exhausted memory" without observing
+   growth across multiple sessions. The model's confusion mirrors a real
+   ambiguity in the category taxonomy, not a reasoning failure.
+4. **Trajectory score saturated at a perfect 1.00 across all 10 tasks** —
+   the three-check rubric (started with a parser tool, no immediate
+   repeated tool call, reasonable step count) turned out to have no
+   discriminative power at this task set's difficulty level; every
+   investigation cleanly passed all three checks. A harder/noisier task set
+   (or intentionally degraded agent behavior) would be needed to see this
+   metric actually vary.
+
+**What this means for Phase 4 expectations:** this 90%/1.00/8.4 baseline is
+a ceiling effect from an easy, non-independent eval set — it does **not**
+mean fine-tuning has nothing left to improve. The real test of QLoRA/DPO
+fine-tuning's value will show up more clearly against harder real-world
+bugreport data (the "Stretch — Real AOSP data" phase in `CONTEXT.md`) or a
+deliberately adversarial eval set built independently from the RAG seed
+corpus. The harness itself — outcome/trajectory/judge grading, JSON+Markdown
+reporting — is fully functional and ready for that harder eval set whenever
+it exists; only the *current 10 tasks* are the easy case.
+
+---
+
+## 8. How to Explain This Component in an Interview
 
 - "I evaluate three orthogonal things, not one blended score: did it reach
   the right conclusion (outcome), did it get there sensibly (trajectory),
@@ -186,3 +249,10 @@ accuracy delta.
   same 10 root-cause categories the synthetic log generator produces are
   exactly what the eval set measures, so there's no drift between 'what the
   agent is trained/tested against' and 'what data actually exists.'"
+- "My baseline came back at 90%, not the ~30% the spec expected — and I
+  didn't just report that. I traced it to two real causes: the eval
+  snippets contain near-literal category keywords, and my RAG seed corpus
+  was written by me, at the same time, from the same category list as the
+  eval tasks, so retrieval was handing back near-answers. That's a genuine
+  eval-design lesson — a seed/reference corpus and an eval set should be
+  built independently, or contamination is exactly what you get."

@@ -11,8 +11,6 @@ data/processed/traces_deduped.jsonl
 data/processed/sft_all.jsonl
 outputs/
 *.log
-eval_results*.json
-eval_results*.md
 
 .ipynb_checkpoints/
 .claude/

@@ -1,0 +1,110 @@
+{
+  "total_tasks": 10,
+  "category_accuracy": 0.9,
+  "avg_keyword_hit_rate": 0.8666666666666666,
+  "avg_confidence": 0.8950000000000001,
+  "avg_trajectory_score": 1.0,
+  "avg_judge_score": 8.4,
+  "per_task_results": [
+    {
+      "task_id": "eval_001",
+      "predicted_category": "anr",
+      "expected_category": "anr",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.85,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    },
+    {
+      "task_id": "eval_002",
+      "predicted_category": "crash",
+      "expected_category": "crash",
+      "category_correct": true,
+      "keyword_hit_rate": 0.6666666666666666,
+      "confidence": 0.9,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    },
+    {
+      "task_id": "eval_003",
+      "predicted_category": "oom",
+      "expected_category": "oom",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.85,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    },
+    {
+      "task_id": "eval_004",
+      "predicted_category": "gpu_fault",
+      "expected_category": "gpu_fault",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.95,
+      "trajectory_score": 1.0,
+      "judge_score": 9.0
+    },
+    {
+      "task_id": "eval_005",
+      "predicted_category": "oom_kill",
+      "expected_category": "oom_kill",
+      "category_correct": true,
+      "keyword_hit_rate": 0.6666666666666666,
+      "confidence": 0.95,
+      "trajectory_score": 1.0,
+      "judge_score": 9.0
+    },
+    {
+      "task_id": "eval_006",
+      "predicted_category": "thermal",
+      "expected_category": "thermal",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.9,
+      "trajectory_score": 1.0,
+      "judge_score": 9.0
+    },
+    {
+      "task_id": "eval_007",
+      "predicted_category": "camera_crash",
+      "expected_category": "camera_crash",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.9,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    },
+    {
+      "task_id": "eval_008",
+      "predicted_category": "kernel_panic",
+      "expected_category": "kernel_panic",
+      "category_correct": true,
+      "keyword_hit_rate": 1.0,
+      "confidence": 0.95,
+      "trajectory_score": 1.0,
+      "judge_score": 9.0
+    },
+    {
+      "task_id": "eval_009",
+      "predicted_category": "binder_failure",
+      "expected_category": "binder_failure",
+      "category_correct": true,
+      "keyword_hit_rate": 0.6666666666666666,
+      "confidence": 0.9,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    },
+    {
+      "task_id": "eval_010",
+      "predicted_category": "oom",
+      "expected_category": "memory_leak",
+      "category_correct": false,
+      "keyword_hit_rate": 0.6666666666666666,
+      "confidence": 0.8,
+      "trajectory_score": 1.0,
+      "judge_score": 8.0
+    }
+  ]
+}

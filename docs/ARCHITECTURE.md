@@ -83,7 +83,7 @@ flowchart TD
         DPOT["DPO Training"]
     end
 
-    subgraph Eval["Eval Harness — PLANNED (Phase 3)"]
+    subgraph Eval["Eval Harness — IMPLEMENTED"]
         DE["DiagnosticEval\noutcome grader"]
         TG["TrajectoryGrader\ntool use checker"]
         LJ["LLMJudge\nreasoning quality (Ollama)"]
@@ -269,12 +269,12 @@ logcat-intelligence-engine/
 │   ├── raw/                    # Synthetic (and later real) logcat/dmesg files [gitignored]
 │   ├── processed/              # seed_cases.jsonl (tracked) + generated FAISS index [artifacts gitignored]
 │   ├── sft/, dpo/              # Training datasets (Phase 2, populated + committed)
-│   ├── eval/                    # Eval datasets (Phase 3, not yet populated)
+│   ├── eval/                    # tasks.py — 10 labeled eval tasks (Phase 3, populated + committed)
 ├── src/
 │   ├── parsers/                # LogcatParser, DmesgParser, BugreportParser — IMPLEMENTED
 │   ├── agent/                  # tools.py, diagnostic_agent.py, prompts.py — IMPLEMENTED
 │   ├── training/                # TraceRecorder, DPOPairGenerator, dedup, stats — IMPLEMENTED
-│   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge — PLANNED (Phase 3)
+│   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge, report — IMPLEMENTED
 │   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — PLANNED (Phase 4)
 │   ├── serve/                  # health check, example client — PLANNED (Phase 5)
 │   └── flywheel/               # auto_trigger, regression_gate, version_tracker — PLANNED (Phase 6)
@@ -304,7 +304,7 @@ logcat-intelligence-engine/
 - Embedding + FAISS retrieval mechanics → [`components/03-rag-retrieval.md`](components/03-rag-retrieval.md)
 - Trace → SFT/DPO data pipeline → [`components/04-training-data-pipeline.md`](components/04-training-data-pipeline.md)
 - QLoRA + DPO + distillation (planned) → [`components/05-finetuning-pipeline.md`](components/05-finetuning-pipeline.md)
-- Eval harness, trajectory grading, LLM judge (planned) → [`components/06-eval-harness.md`](components/06-eval-harness.md)
+- Eval harness, trajectory grading, LLM judge → [`components/06-eval-harness.md`](components/06-eval-harness.md)
 - vLLM + airgapped Docker (planned) → [`components/07-deployment-serving.md`](components/07-deployment-serving.md)
 - Auto-retrain flywheel + regression gate (planned) → [`components/08-flywheel.md`](components/08-flywheel.md)
 - Live phase status, decisions log → `CONTEXT.md` (project root)

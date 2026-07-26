@@ -58,7 +58,7 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 | 0 — Environment setup | done | Ollama (`qwen2.5:7b` pulled), venv (Python 3.11), folder structure, git init, validate_env.py passing |
 | 1 — Agentic diagnosis engine | done | Parsers, tools (incl. FAISS RAG), ReAct DiagnosticAgent verified end-to-end against local Ollama on 3 synthetic scenarios |
 | 2 — Training data pipeline | done | TraceRecorder/Converter, DPOPairGenerator, dedup+quality filter, stats — verified end-to-end on 20 real traces (7 train / 2 val SFT, 1 DPO demo pair) |
-| 3 — Eval harness | not started | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks |
+| 3 — Eval harness | done | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks — baseline run: 90% category accuracy (see caveats in decisions log) |
 | 4 — Fine-tuning (cloud GPU) | not started | QLoRA SFT + DPO on Kaggle T4; Groq distillation teacher |
 | 5 — Deployment | not started | Airgapped Docker + vLLM; local smoke test, real test on cloud |
 | 6 — Flywheel | not started | Auto-retrain trigger, regression gate, version tracking |
@@ -75,11 +75,15 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 - **2026-07-26**: Phase 2 completed. `scripts/collect_traces.py` ran the agent across all 10 synthetic categories (2 reps each, 20 investigations) against local Ollama, recording every trace via `TraceRecorder`. `scripts/build_training_data.py` deduped, quality-filtered, converted to ShareGPT SFT format, split train/val, and generated one DPO demo pair. Result: 9 of 20 traces survived dedup+filtering, split 7 train / 2 val, avg confidence 0.91, 7 distinct root-cause categories represented.
 - **2026-07-26**: Two real bugs found and fixed while running Phase 2 at realistic volume (20 investigations, not the earlier 3-scenario demo): (1) `DiagnosticAgent._execute_tool()` crashed with an unhandled `TypeError` when the model emitted a malformed/empty tool `Action Input` — fixed by wrapping `tool(**args)` in a try/except (see `docs/components/01-diagnostic-agent.md` §8b). (2) `dedup_and_filter()` originally kept whichever occurrence of a repeated investigation appeared *first*, so a failed first run permanently shadowed a later successful re-run of the same scenario — fixed to keep the highest-confidence occurrence per dedup group (see `docs/components/04-training-data-pipeline.md` §8). Both fixes are already applied in `src/agent/diagnostic_agent.py` and `src/training/dedup.py`.
 - **2026-07-26**: `data/sft/*.jsonl` and `data/dpo/train.jsonl` (small, curated) are committed to git as portfolio evidence; `data/raw/traces.jsonl` (large, ever-growing, unfiltered source) and the true scratch intermediates (`data/processed/traces_deduped.jsonl`, `data/processed/sft_all.jsonl`) stay gitignored.
+- **2026-07-26**: Phase 3 completed. `scripts/run_eval.py` ran `DiagnosticEval` (outcome grading + `TrajectoryGrader` + `LLMJudge`) against the zero-shot `qwen2.5:7b` agent on all 10 labeled tasks in `data/eval/tasks.py`. Baseline result: **90% category accuracy** (9/10), avg keyword hit rate 0.87, avg trajectory score 1.00 (perfect — see caveat below), avg judge score 8.4/10. Reports written to `eval_results_baseline.md`/`.json` (gitignored, regenerable).
+- **2026-07-26**: Important caveat on the 90% baseline — it is NOT comparable to the capstone doc's ~30% zero-shot expectation, and this was root-caused rather than reported uncritically. Two contamination sources identified: (1) the eval snippets contain near-literal category keywords (e.g. the literal string "GPU fault" in the gpu_fault task), making category recognition close to keyword matching rather than hard reasoning; (2) `data/processed/seed_cases.jsonl` (RAG corpus) and `data/eval/tasks.py` were both hand-written by the same author from the same category list at the same time — e.g. eval_001's description is a near-paraphrase of `seed_anr_01`'s — so RAG retrieval was handing back near-answers. The one miss (`eval_010`, memory_leak predicted as oom) is a genuinely defensible ambiguity, not a bug. Full writeup in `docs/components/06-eval-harness.md` §7. Conclusion: the harness itself is fully functional and ready to gate Phase 4, but a fair before/after fine-tuning comparison will need either real AOSP data (the stretch phase) or a new eval set built independently from the seed corpus — the current 10 tasks are an easy case, not a representative one.
 
 ## What's Next
 
-Phase 0, 1, and 2 are done and verified. Next up is Phase 3 (Eval Harness):
-`DiagnosticEval` + the 10 labeled tasks, `TrajectoryGrader` (tool-use-order
-scoring), `LLMJudge` (reasoning-quality scoring via local Ollama) — establishes
-the zero-shot baseline accuracy number that Phase 4 fine-tuning must beat.
-Still Mac-local, no cloud GPU needed.
+Phase 0, 1, 2, and 3 are done and verified. Next up is Phase 4 (Fine-Tuning —
+**requires cloud GPU**, first phase that can't run on this Mac): QLoRA SFT +
+DPO training on Qwen2.5-7B via a free Kaggle T4 notebook, using the
+`data/sft/`/`data/dpo/` datasets from Phase 2, with Groq's free Llama 3.3 70B
+as the distillation teacher. Before investing in fine-tuning, consider
+whether to first build a harder/independent eval set (see the Phase 3
+caveat above) so the fine-tuning accuracy delta is actually meaningful.
