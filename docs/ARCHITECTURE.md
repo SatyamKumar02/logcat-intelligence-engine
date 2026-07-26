@@ -77,7 +77,7 @@ flowchart TD
         PREF["Preference Dataset"]
     end
 
-    subgraph FineTune["Fine-Tuning Pipeline — PLANNED (Phase 4, cloud GPU)"]
+    subgraph FineTune["Fine-Tuning Pipeline — CODE READY, NOT YET RUN (cloud GPU)"]
         FT["QLoRA Fine-Tuning\nQwen2.5-7B"]
         DIST["Distillation\nGroq Llama-3.3-70B teacher"]
         DPOT["DPO Training"]
@@ -275,7 +275,7 @@ logcat-intelligence-engine/
 │   ├── agent/                  # tools.py, diagnostic_agent.py, prompts.py — IMPLEMENTED
 │   ├── training/                # TraceRecorder, DPOPairGenerator, dedup, stats — IMPLEMENTED
 │   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge, report — IMPLEMENTED
-│   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — PLANNED (Phase 4)
+│   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — CODE READY, not yet run on GPU
 │   ├── serve/                  # health check, example client — PLANNED (Phase 5)
 │   └── flywheel/               # auto_trigger, regression_gate, version_tracker — PLANNED (Phase 6)
 ├── scripts/                     # validate_env, generate_synthetic_logs, build_case_index, run_agent_demo

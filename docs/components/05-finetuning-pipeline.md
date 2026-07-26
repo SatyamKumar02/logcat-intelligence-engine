@@ -1,10 +1,23 @@
 # Component: Fine-Tuning Pipeline (QLoRA + DPO + Distillation)
 
-**Status: PLANNED (Phase 4, requires cloud GPU)** — target files: `src/finetune/qlora_config.py`, `src/finetune/train_sft.py`, `src/finetune/train_dpo.py`, `src/finetune/distill.py`, `src/finetune/merge_adapter.py`
+**Status: CODE READY — NOT YET RUN (requires cloud GPU)** — `src/finetune/qlora_config.py`, `src/finetune/train_sft.py`, `src/finetune/train_dpo.py`, `src/finetune/distill.py`, `src/finetune/merge_adapter.py`, `notebooks/04_finetune_kaggle.ipynb`, `scripts/validate_finetune_data.py`
 
 This is where the accumulated training data (Phase 2) actually changes model
 weights. It's the densest ML-engineering component in the system and the one
 most worth being able to explain precisely in an interview.
+
+**What "CODE READY — NOT YET RUN" means, precisely:** every script here is
+written, its imports and API usage were checked against the exact package
+versions installed locally (`trl==1.9.0`, `transformers==5.14.1` — see
+[Section 2b](#2b-a-real-api-mismatch-caught-before-it-cost-gpu-time)), and
+the data pipeline it consumes was validated end to end with a real
+tokenizer (`scripts/validate_finetune_data.py`, see
+[Section 2c](#2c-verified-locally-without-a-gpu)). The one thing that
+genuinely cannot be verified from this Mac is the actual quantized-model
+training run itself — that requires `bitsandbytes` + a CUDA GPU, which
+Apple Silicon doesn't have. `notebooks/04_finetune_kaggle.ipynb` is written
+and ready; running it on a free Kaggle T4 is the next concrete action item,
+not yet done.
 
 **Hardware note:** `bitsandbytes` (4-bit quantization) and the CUDA kernels
 QLoRA depends on don't run on Apple Silicon. This entire phase runs on a free
@@ -119,9 +132,59 @@ natively.
 
 ---
 
+## 2b. A Real API Mismatch Caught Before It Cost GPU Time
+
+`SFTTrainer` used to accept `dataset_text_field`/`max_seq_length` directly
+as constructor kwargs in older TRL releases — the version this repo has
+installed (`trl==1.9.0`) has moved both onto a dedicated `SFTConfig` object
+(passed as `args=`), and dropped them from `SFTTrainer.__init__` entirely.
+This was caught locally, without a GPU, by running:
+
+```python
+from trl import SFTTrainer
+import inspect
+inspect.signature(SFTTrainer.__init__)  # dataset_text_field/max_seq_length not present
+```
+
+`train_sft.py` uses `SFTConfig` accordingly. The same technique
+(`inspect.signature()` against the exact installed package, not
+documentation or memory) verified `DPOConfig`'s `beta`/`max_length` fields
+and `DPOTrainer`'s `processing_class` parameter for `train_dpo.py`. This is
+the same discipline as the rest of the project: verify against the real
+environment rather than assume a reference implementation's exact API
+surface still matches a newer library version.
+
+**What this doesn't cover:** Kaggle's preinstalled `trl`/`transformers`
+versions may still differ from this repo's local `trl==1.9.0` /
+`transformers==5.14.1` — the training scripts note this explicitly and
+recommend re-running the same `inspect.signature()` check there if a
+`TypeError` on an unexpected kwarg shows up.
+
+## 2c. Verified Locally, Without a GPU
+
+`scripts/validate_finetune_data.py` loads the real
+`Qwen/Qwen2.5-7B-Instruct` tokenizer (a small download, no GPU/bitsandbytes
+needed), formats every SFT/DPO record exactly as `train_sft.py`/
+`train_dpo.py` will, and reports token-length statistics against
+`QLoRAConfig.max_seq_length`. Run against the actual Phase 2 data:
+
+```
+SFT train: 7 records, 1146-2299 tokens (avg 1536), 0 over max_seq_length=4096
+SFT val:   2 records, 1505-1777 tokens (avg 1641), 0 over max_seq_length=4096
+DPO train: 1 record,  84 combined tokens,            0 over max_seq_length
+```
+
+This confirms the full ReAct-trace-based SFT records (see
+[04-training-data-pipeline.md](04-training-data-pipeline.md)) fit
+comfortably within the configured context window — a real, checked fact
+rather than an assumption, and exactly the kind of cheap check worth
+running before spending any Kaggle GPU-hour budget.
+
+---
+
 ## 3. DPO Training
 
-Once an SFT checkpoint exists, `train_dpo.py` (planned) continues training
+Once an SFT checkpoint exists, `train_dpo.py` continues training
 from that checkpoint using TRL's `DPOTrainer` against
 `data/dpo/train.jsonl`'s `{prompt, chosen, rejected}` pairs.
 
@@ -167,6 +230,13 @@ proxy — for the $0 build this is swapped for Groq's Llama 3.3 70B endpoint,
 same OpenAI-compatible-ish call shape, zero cost instead of ~$15/M input +
 $75/M output tokens.)
 
+Implemented in `src/finetune/distill.py` (`collect_teacher_outputs()` +
+`teacher_outputs_to_sft()`, the latter converting collected teacher
+responses into ShareGPT-format SFT records). Unlike `train_sft.py`/
+`train_dpo.py`, this needs **no GPU at all** — it's a plain API call and
+could run on this Mac right now, except `GROQ_API_KEY` hasn't been set up
+yet (manual account creation step, see `CONTEXT.md`'s account checklist).
+
 **Why this is worth doing at all, given SFT from the agent's own traces
 already exists:** the agent's own successful traces teach the model to
 imitate *itself* (useful for consistency and format-following, per
@@ -206,3 +276,10 @@ Docker image — vLLM serves the merged model directly, it has no notion of
 - "The merge step matters operationally, not just academically — vLLM in
   production serves one set of weights, it doesn't want to know about
   adapters at inference time."
+- "I couldn't actually run the GPU training locally — no CUDA on Apple
+  Silicon — so I front-loaded every check I *could* do without a GPU:
+  `inspect.signature()` against the exact installed `trl` version caught a
+  real API change (`SFTTrainer` moved `dataset_text_field` onto a separate
+  `SFTConfig`), and a real tokenizer run confirmed the training data fits
+  the context window. Writing untested code for a cloud run doesn't mean
+  writing unverified code."

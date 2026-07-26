@@ -25,7 +25,9 @@ tech stack rationale, AI/ML concepts glossary, interview talking points) plus
 one deep-dive per subsystem in `docs/components/01-08` (diagnostic agent,
 parsers, RAG retrieval, training data pipeline, fine-tuning/QLoRA/DPO/
 distillation, eval harness, deployment/vLLM, flywheel) — each with a mermaid
-diagram and an "IMPLEMENTED" vs "PLANNED" status.
+diagram and an "IMPLEMENTED" / "CODE READY — NOT YET RUN" / "PLANNED" status.
+See also `docs/EVAL_SET_IMPROVEMENT_PLAN.md` for the tracked, not-yet-done
+fix to the Phase 3 eval-contamination finding.
 
 ## Cost Strategy — Target: $0
 
@@ -59,7 +61,7 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 | 1 — Agentic diagnosis engine | done | Parsers, tools (incl. FAISS RAG), ReAct DiagnosticAgent verified end-to-end against local Ollama on 3 synthetic scenarios |
 | 2 — Training data pipeline | done | TraceRecorder/Converter, DPOPairGenerator, dedup+quality filter, stats — verified end-to-end on 20 real traces (7 train / 2 val SFT, 1 DPO demo pair) |
 | 3 — Eval harness | done | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks — baseline run: 90% category accuracy (see caveats in decisions log) |
-| 4 — Fine-tuning (cloud GPU) | not started | QLoRA SFT + DPO on Kaggle T4; Groq distillation teacher |
+| 4 — Fine-tuning (cloud GPU) | code ready, not yet run | QLoRA SFT/DPO scripts + Groq distillation + Kaggle notebook written and locally verified (API signatures, tokenizer/data fit); actual GPU training requires the user to run `notebooks/04_finetune_kaggle.ipynb` on Kaggle |
 | 5 — Deployment | not started | Airgapped Docker + vLLM; local smoke test, real test on cloud |
 | 6 — Flywheel | not started | Auto-retrain trigger, regression gate, version tracking |
 | Stretch — Real AOSP data | not started | Deferred until synthetic pipeline is proven end-to-end |
@@ -75,15 +77,26 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 - **2026-07-26**: Phase 2 completed. `scripts/collect_traces.py` ran the agent across all 10 synthetic categories (2 reps each, 20 investigations) against local Ollama, recording every trace via `TraceRecorder`. `scripts/build_training_data.py` deduped, quality-filtered, converted to ShareGPT SFT format, split train/val, and generated one DPO demo pair. Result: 9 of 20 traces survived dedup+filtering, split 7 train / 2 val, avg confidence 0.91, 7 distinct root-cause categories represented.
 - **2026-07-26**: Two real bugs found and fixed while running Phase 2 at realistic volume (20 investigations, not the earlier 3-scenario demo): (1) `DiagnosticAgent._execute_tool()` crashed with an unhandled `TypeError` when the model emitted a malformed/empty tool `Action Input` — fixed by wrapping `tool(**args)` in a try/except (see `docs/components/01-diagnostic-agent.md` §8b). (2) `dedup_and_filter()` originally kept whichever occurrence of a repeated investigation appeared *first*, so a failed first run permanently shadowed a later successful re-run of the same scenario — fixed to keep the highest-confidence occurrence per dedup group (see `docs/components/04-training-data-pipeline.md` §8). Both fixes are already applied in `src/agent/diagnostic_agent.py` and `src/training/dedup.py`.
 - **2026-07-26**: `data/sft/*.jsonl` and `data/dpo/train.jsonl` (small, curated) are committed to git as portfolio evidence; `data/raw/traces.jsonl` (large, ever-growing, unfiltered source) and the true scratch intermediates (`data/processed/traces_deduped.jsonl`, `data/processed/sft_all.jsonl`) stay gitignored.
-- **2026-07-26**: Phase 3 completed. `scripts/run_eval.py` ran `DiagnosticEval` (outcome grading + `TrajectoryGrader` + `LLMJudge`) against the zero-shot `qwen2.5:7b` agent on all 10 labeled tasks in `data/eval/tasks.py`. Baseline result: **90% category accuracy** (9/10), avg keyword hit rate 0.87, avg trajectory score 1.00 (perfect — see caveat below), avg judge score 8.4/10. Reports written to `eval_results_baseline.md`/`.json` (gitignored, regenerable).
-- **2026-07-26**: Important caveat on the 90% baseline — it is NOT comparable to the capstone doc's ~30% zero-shot expectation, and this was root-caused rather than reported uncritically. Two contamination sources identified: (1) the eval snippets contain near-literal category keywords (e.g. the literal string "GPU fault" in the gpu_fault task), making category recognition close to keyword matching rather than hard reasoning; (2) `data/processed/seed_cases.jsonl` (RAG corpus) and `data/eval/tasks.py` were both hand-written by the same author from the same category list at the same time — e.g. eval_001's description is a near-paraphrase of `seed_anr_01`'s — so RAG retrieval was handing back near-answers. The one miss (`eval_010`, memory_leak predicted as oom) is a genuinely defensible ambiguity, not a bug. Full writeup in `docs/components/06-eval-harness.md` §7. Conclusion: the harness itself is fully functional and ready to gate Phase 4, but a fair before/after fine-tuning comparison will need either real AOSP data (the stretch phase) or a new eval set built independently from the seed corpus — the current 10 tasks are an easy case, not a representative one.
+- **2026-07-26**: Phase 3 completed. `scripts/run_eval.py` ran `DiagnosticEval` (outcome grading + `TrajectoryGrader` + `LLMJudge`) against the zero-shot `qwen2.5:7b` agent on all 10 labeled tasks in `data/eval/tasks.py`. Baseline result: **90% category accuracy** (9/10), avg keyword hit rate 0.87, avg trajectory score 1.00 (perfect — see caveat below), avg judge score 8.4/10. Reports committed as `eval_results_baseline.md`/`.json`.
+- **2026-07-26**: Important caveat on the 90% baseline — it is NOT comparable to the capstone doc's ~30% zero-shot expectation, and this was root-caused rather than reported uncritically. Two contamination sources identified: (1) the eval snippets contain near-literal category keywords (e.g. the literal string "GPU fault" in the gpu_fault task), making category recognition close to keyword matching rather than hard reasoning; (2) `data/processed/seed_cases.jsonl` (RAG corpus) and `data/eval/tasks.py` were both hand-written by the same author from the same category list at the same time — e.g. eval_001's description is a near-paraphrase of `seed_anr_01`'s — so RAG retrieval was handing back near-answers. The one miss (`eval_010`, memory_leak predicted as oom) is a genuinely defensible ambiguity, not a bug. Full writeup in `docs/components/06-eval-harness.md` §7. **Actionable fix plan written separately**: `docs/EVAL_SET_IMPROVEMENT_PLAN.md` (not yet executed).
+- **2026-07-26**: Phase 4 code written (per user's explicit choice: build the code now, defer the eval fix to its own tracked plan rather than blocking on it). `src/finetune/qlora_config.py`, `train_sft.py`, `train_dpo.py`, `distill.py` (Groq teacher), `merge_adapter.py`, and `notebooks/04_finetune_kaggle.ipynb` are all written. **Cannot be executed on this Mac** — QLoRA needs `bitsandbytes` + CUDA, unavailable on Apple Silicon. What WAS verified locally without a GPU: (1) `scripts/validate_finetune_data.py` loaded the real Qwen2.5-7B-Instruct tokenizer and confirmed all SFT/DPO records fit `max_seq_length=4096` (SFT train: 1146-2299 tokens; SFT val: 1505-1777; DPO: 84) — zero problems found; (2) a real API mismatch was caught via `inspect.signature()` against the installed `trl==1.9.0` — `SFTTrainer` no longer accepts `dataset_text_field`/`max_seq_length` directly, they now live on a separate `SFTConfig` — fixed before it could waste Kaggle GPU time; `DPOConfig`/`DPOTrainer`'s fields were verified the same way and matched what was already written. **Next physical action**: user runs `notebooks/04_finetune_kaggle.ipynb` on Kaggle (needs HF_TOKEN + WANDB_API_KEY secrets set there) — this is the first phase requiring the user's own hands-on execution, not something I can complete end-to-end myself.
+- **2026-07-26**: Given the current SFT set is only 7 train records and DPO only 1 pair, the first Kaggle run should be understood as "does the pipeline work end to end," not "did the model get better" — both the notebook and `docs/components/05-finetuning-pipeline.md` say this explicitly so the result isn't over-interpreted.
 
 ## What's Next
 
-Phase 0, 1, 2, and 3 are done and verified. Next up is Phase 4 (Fine-Tuning —
-**requires cloud GPU**, first phase that can't run on this Mac): QLoRA SFT +
-DPO training on Qwen2.5-7B via a free Kaggle T4 notebook, using the
-`data/sft/`/`data/dpo/` datasets from Phase 2, with Groq's free Llama 3.3 70B
-as the distillation teacher. Before investing in fine-tuning, consider
-whether to first build a harder/independent eval set (see the Phase 3
-caveat above) so the fine-tuning accuracy delta is actually meaningful.
+Phase 0, 1, 2, and 3 are done and verified; Phase 4's code is written and
+locally verified but not yet run. Two independent next actions, either
+order:
+
+1. **Run Phase 4 for real**: user creates HF/WandB/Groq/Kaggle accounts (see
+   checklist above), uploads/opens `notebooks/04_finetune_kaggle.ipynb` on
+   Kaggle, enables the free T4 GPU, sets the two secrets, and runs it. This
+   is the first phase in the project that genuinely needs the user's own
+   execution — I cannot run cloud GPU code myself.
+2. **Fix the eval set** per `docs/EVAL_SET_IMPROVEMENT_PLAN.md` — ideally
+   before trusting whatever accuracy number comes out of evaluating the
+   fine-tuned checkpoint, since the current 10-task eval set is contaminated
+   (see the Phase 3 decision above).
+
+After either/both: Phase 5 (Deployment — airgapped Docker + vLLM) is the
+next phase after Phase 4 actually produces a merged model to serve.
