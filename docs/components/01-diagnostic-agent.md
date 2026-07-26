@@ -224,6 +224,39 @@ in the model's *generation*, not in how we're parsing it.
 
 ---
 
+## 8b. Bug Found & Fixed: Unguarded Tool-Argument Errors (2026-07-26)
+
+Running `scripts/collect_traces.py` (Phase 2's trace collection, see
+[04-training-data-pipeline.md](04-training-data-pipeline.md#8-verified-run-2026-07-26))
+across 20 real investigations — rather than the 3 hand-picked scenarios used
+to originally verify Phase 1 — crashed the whole process:
+
+```
+TypeError: PatternSearchTool.__call__() missing 2 required positional arguments: 'file_path' and 'pattern'
+```
+
+The model emitted a tool call with a missing or malformed `Action Input`
+(parsed as `{}`), and `_execute_tool()` called `tool(**args)` with no guard
+around Python's own argument-binding — a `TypeError` here happens *before*
+the tool's own body (and its internal `try/except`, see
+[Section 7](#7-tools-srcagenttoolspy)) ever runs, so nothing inside any tool
+could have caught it. Fixed by wrapping that specific call in `_execute_tool`:
+
+```python
+try:
+    result: ToolResult = tool(**args)
+except TypeError as e:
+    return f"ERROR: Invalid arguments for '{tool_name}': {e}"
+```
+
+This is the same lesson as the format-drift limitation above, generalized:
+**failure modes that only show up at real usage volume are exactly what
+production trace collection is for.** A 3-scenario demo never happened to
+trigger this; running 20 investigations across all 10 categories did on the
+very first attempt.
+
+---
+
 ## 9. How to Explain This Component in an Interview
 
 - "I didn't use native function-calling — I implemented the classic ReAct

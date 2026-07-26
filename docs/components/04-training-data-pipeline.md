@@ -1,6 +1,6 @@
 # Component: Training Data Pipeline
 
-**Status: PLANNED (Phase 2)** — target files: `src/training/trace_recorder.py`, `src/training/dpo_generator.py`, `src/training/dedup.py`, `src/training/stats.py`
+**Status: IMPLEMENTED** — `src/training/trace_recorder.py`, `src/training/dpo_generator.py`, `src/training/dedup.py`, `src/training/stats.py`, `scripts/collect_traces.py`, `scripts/build_training_data.py`
 
 Turns every agent investigation into two kinds of training signal: SFT
 examples (from successful investigations) and DPO preference pairs (from
@@ -162,7 +162,72 @@ to run, catches data problems before they become a wasted training run.
 
 ---
 
-## 8. How to Explain This Component in an Interview
+## 8. Verified Run (2026-07-26)
+
+`scripts/collect_traces.py` ran the Phase 1 `DiagnosticAgent` against local
+Ollama across all 10 synthetic categories, 2 investigations each (20 total),
+recording every trace via `TraceRecorder` to `data/raw/traces.jsonl`. Then
+`scripts/build_training_data.py` ran the full pipeline end to end:
+
+```
+Step 1: dedup + quality filter raw traces...
+  total=20 duplicates_dropped=10 low_quality_dropped=1 kept=9
+Step 2: convert survivors to ShareGPT SFT format...
+  converted 9 records -> data/processed/sft_all.jsonl
+Step 3: train/val split...
+  train=7 val=2
+Step 4: DPO demo pair from a low-quality trace + matching seed case...
+  Wrote 1 DPO demo pair (investigation 4aa12e1d5cbc4b59, category=crash)
+Step 5: dataset statistics...
+  Avg confidence: 0.91, Avg reasoning steps: 5.1
+  Category distribution (train): binder_failure, thermal, memory_leak,
+  oom, camera_crash, crash, anr — 1 each
+```
+
+**A real bug surfaced and got fixed during this run.** The first collection
+attempt crashed with `TypeError: PatternSearchTool.__call__() missing 2
+required positional arguments` — the model emitted a tool call with a
+malformed/empty `Action Input`, and `DiagnosticAgent._execute_tool()` called
+`tool(**args)` with no guard around Python's own argument-binding, so the
+`TypeError` happened *before* the tool's internal try/except could catch
+anything. Fixed by wrapping that specific call site in
+`diagnostic_agent.py` — see [01-diagnostic-agent.md](01-diagnostic-agent.md).
+This is exactly the kind of gap that only shows up once an agent runs enough
+real, varied investigations — the earlier hand-picked 3-scenario demo never
+happened to hit it.
+
+**A real design flaw in dedup was also found and fixed.** The first version
+of `dedup_and_filter()` kept whichever occurrence of a repeated investigation
+appeared *first* in the raw trace file and discarded the rest as duplicates
+— regardless of quality. In practice this meant a failed first run (e.g. the
+`crash` scenario's first attempt hit the agent's `MAX_STEPS` fallback,
+confidence 0.0) permanently shadowed a later *successful* re-run of the same
+scenario (confidence 0.90), which never made it into the SFT set. Fixed by
+grouping duplicates and keeping the highest-confidence representative per
+group (see `dedup_and_filter()` in `src/training/dedup.py`) — this alone
+recovered one extra training example (`kept` went from 8 to 9) and raised
+`avg_confidence` from 0.88 to 0.91.
+
+**Why 10 of 20 traces were "duplicates":** each scenario was intentionally
+run twice to exercise the dedup path — `_dedup_key()` treats "same
+description + same file paths" as the same underlying investigation
+regardless of what the model happened to output on a given run, which is
+correct: re-running an identical scenario shouldn't multiply its weight in
+the training set (see [Section 6](#6-dedup--quality-filtering-deduppy)).
+
+**The DPO demo pair** paired the `crash` scenario's failed first run
+(`rejected`, confidence 0.0, "Investigation incomplete — max steps reached")
+with `seed_crash_01`'s known-correct diagnosis (`chosen`) from
+`data/processed/seed_cases.jsonl` — see
+[Section 5](#5-dpopairgenerator--preference-pairs-from-corrections) for why
+the seed corpus stands in for a human reviewer here. Both `data/sft/*.jsonl`
+and `data/dpo/train.jsonl` are committed to the repo as small, concrete
+portfolio artifacts (unlike `data/raw/traces.jsonl`, which is gitignored —
+see `.gitignore` — since it's the large, ever-growing, unfiltered source).
+
+---
+
+## 9. How to Explain This Component in an Interview
 
 - "The training data pipeline doesn't require any separate labeling effort —
   it's a direct transform of production traces the agent already generated,
@@ -175,3 +240,9 @@ to run, catches data problems before they become a wasted training run.
   the failure mode I actually observed (format drift breaking the ReAct
   parser) lives in the *process*, not the final JSON — so that's what needs
   reinforcing."
+- "Running this pipeline against 20 real (non-hand-picked) investigations
+  surfaced two real bugs — an unhandled `TypeError` on malformed tool
+  arguments, and a dedup strategy that let a failed run permanently shadow a
+  later successful one. Both were fixed because I ran the pipeline at a
+  scale where they could actually show up, not because I anticipated them
+  upfront."

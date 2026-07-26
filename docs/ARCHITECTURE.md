@@ -69,7 +69,7 @@ flowchart TD
         OLLAMA["Ollama, local\nqwen2.5:7b"]
     end
 
-    subgraph Training["Training Data Pipeline — PLANNED (Phase 2)"]
+    subgraph Training["Training Data Pipeline — IMPLEMENTED"]
         TL["TraceRecorder\nJSON step recorder"]
         TC["TraceConverter\nShareGPT format"]
         DPO["DPOPairGenerator\nhuman vs model"]
@@ -133,13 +133,13 @@ Think of the system as seven layers, each consuming the layer below:
 2. **Parsing** — regex-based structured extraction (`src/parsers/`) turns raw text into typed entries (`LogcatEntry`, `DmesgEntry`) with derived signals (crash/ANR/OOM/GPU-fault/panic flags).
 3. **Agentic reasoning** — the `DiagnosticAgent` (`src/agent/`) is the brain: it decides *which* parser/tool to call, in what order, based on what it's already learned, using a ReAct (Reason + Act) loop against a local LLM.
 4. **Knowledge retrieval** — `RAGRetrieverTool` lets the agent ground its reasoning in similar past cases (embedding similarity search over a FAISS index), not just the current log file.
-5. **Training data generation** (planned) — every investigation trace is a labeled example; `TraceConverter` turns it into SFT training data, and human corrections turn into DPO preference pairs.
+5. **Training data generation** — every investigation trace is a labeled example; `TraceConverter` turns it into SFT training data, and human corrections turn into DPO preference pairs.
 6. **Model improvement** (planned) — QLoRA fine-tuning + DPO + distillation turn the accumulated traces into a better 7B model, gated by the eval harness.
 7. **Serving + feedback** (planned) — the improved model deploys via vLLM, and its new investigations become tomorrow's training data. Closed loop.
 
-Layers 1–4 are built and verified today. Layers 5–7 are designed in detail
+Layers 1–5 are built and verified today. Layers 6–7 are designed in detail
 (see the relevant `docs/components/*.md`) and scheduled for the next build
-pass, since 5–6 need a cloud GPU per `capstone-build-requirements.md`.
+pass, since both need a cloud GPU per `capstone-build-requirements.md`.
 
 ---
 
@@ -268,11 +268,12 @@ logcat-intelligence-engine/
 ├── data/
 │   ├── raw/                    # Synthetic (and later real) logcat/dmesg files [gitignored]
 │   ├── processed/              # seed_cases.jsonl (tracked) + generated FAISS index [artifacts gitignored]
-│   ├── sft/, dpo/, eval/       # Training/eval datasets (Phase 2/3, not yet populated)
+│   ├── sft/, dpo/              # Training datasets (Phase 2, populated + committed)
+│   ├── eval/                    # Eval datasets (Phase 3, not yet populated)
 ├── src/
 │   ├── parsers/                # LogcatParser, DmesgParser, BugreportParser — IMPLEMENTED
 │   ├── agent/                  # tools.py, diagnostic_agent.py, prompts.py — IMPLEMENTED
-│   ├── training/                # TraceRecorder, DPOPairGenerator — PLANNED (Phase 2)
+│   ├── training/                # TraceRecorder, DPOPairGenerator, dedup, stats — IMPLEMENTED
 │   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge — PLANNED (Phase 3)
 │   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — PLANNED (Phase 4)
 │   ├── serve/                  # health check, example client — PLANNED (Phase 5)
@@ -301,7 +302,7 @@ logcat-intelligence-engine/
 - Full ReAct agent logic, prompt design, parsing regexes, known limitations → [`components/01-diagnostic-agent.md`](components/01-diagnostic-agent.md)
 - Logcat/dmesg/bugreport parsing rules → [`components/02-parsers.md`](components/02-parsers.md)
 - Embedding + FAISS retrieval mechanics → [`components/03-rag-retrieval.md`](components/03-rag-retrieval.md)
-- Trace → SFT/DPO data pipeline (planned) → [`components/04-training-data-pipeline.md`](components/04-training-data-pipeline.md)
+- Trace → SFT/DPO data pipeline → [`components/04-training-data-pipeline.md`](components/04-training-data-pipeline.md)
 - QLoRA + DPO + distillation (planned) → [`components/05-finetuning-pipeline.md`](components/05-finetuning-pipeline.md)
 - Eval harness, trajectory grading, LLM judge (planned) → [`components/06-eval-harness.md`](components/06-eval-harness.md)
 - vLLM + airgapped Docker (planned) → [`components/07-deployment-serving.md`](components/07-deployment-serving.md)

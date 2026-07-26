@@ -209,7 +209,13 @@ class DiagnosticAgent:
         tool = self._tools.get(tool_name)
         if not tool:
             return f"ERROR: Unknown tool '{tool_name}'"
-        result: ToolResult = tool(**args)
+        try:
+            result: ToolResult = tool(**args)
+        except TypeError as e:
+            # The model supplied missing/extra/malformed arguments — this
+            # happens before the tool's own body (and its internal
+            # try/except) ever runs, so it must be caught here instead.
+            return f"ERROR: Invalid arguments for '{tool_name}': {e}"
         if not result.success:
             return f"ERROR: {result.error}"
         return json.dumps(result.data, indent=2)[:2000]

@@ -57,7 +57,7 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 |---|---|---|
 | 0 — Environment setup | done | Ollama (`qwen2.5:7b` pulled), venv (Python 3.11), folder structure, git init, validate_env.py passing |
 | 1 — Agentic diagnosis engine | done | Parsers, tools (incl. FAISS RAG), ReAct DiagnosticAgent verified end-to-end against local Ollama on 3 synthetic scenarios |
-| 2 — Training data pipeline | not started | TraceRecorder/Converter, DPO pair generator |
+| 2 — Training data pipeline | done | TraceRecorder/Converter, DPOPairGenerator, dedup+quality filter, stats — verified end-to-end on 20 real traces (7 train / 2 val SFT, 1 DPO demo pair) |
 | 3 — Eval harness | not started | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks |
 | 4 — Fine-tuning (cloud GPU) | not started | QLoRA SFT + DPO on Kaggle T4; Groq distillation teacher |
 | 5 — Deployment | not started | Airgapped Docker + vLLM; local smoke test, real test on cloud |
@@ -72,13 +72,14 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 - **2026-07-26**: `RAGRetrieverTool`'s FAISS index is bootstrapped from a small set of hand-written seed cases (one per eval category) so retrieval returns something meaningful before real trace data accumulates.
 - **2026-07-26**: Phase 0 + Phase 1 completed in one pass. `qwen2.5:7b` pulled via Ollama, full ReAct loop (`DiagnosticAgent`) verified end-to-end against 3 synthetic scenarios (crash, ANR, GPU fault). Crash and ANR scenarios produced correct, well-evidenced diagnoses using all 4 tools (logcat_parser, pattern_search, dmesg_parser, rag_retriever). The GPU-fault run hit the known regex-based ReAct parsing fragility (model deviated from strict Thought/Action format mid-investigation, agent hit max-steps fallback) — this is expected zero-shot baseline behavior per the capstone doc (~30% zero-shot accuracy target), not a bug; Phase 3's eval harness will quantify this and Phase 4 fine-tuning is meant to close the gap.
 - **2026-07-26**: `.gitignore` excludes generated artifacts under `data/processed/` (`*.faiss`, `case_metadata.jsonl`) but keeps `data/processed/seed_cases.jsonl` tracked since it's hand-written source data, not a build artifact.
+- **2026-07-26**: Phase 2 completed. `scripts/collect_traces.py` ran the agent across all 10 synthetic categories (2 reps each, 20 investigations) against local Ollama, recording every trace via `TraceRecorder`. `scripts/build_training_data.py` deduped, quality-filtered, converted to ShareGPT SFT format, split train/val, and generated one DPO demo pair. Result: 9 of 20 traces survived dedup+filtering, split 7 train / 2 val, avg confidence 0.91, 7 distinct root-cause categories represented.
+- **2026-07-26**: Two real bugs found and fixed while running Phase 2 at realistic volume (20 investigations, not the earlier 3-scenario demo): (1) `DiagnosticAgent._execute_tool()` crashed with an unhandled `TypeError` when the model emitted a malformed/empty tool `Action Input` — fixed by wrapping `tool(**args)` in a try/except (see `docs/components/01-diagnostic-agent.md` §8b). (2) `dedup_and_filter()` originally kept whichever occurrence of a repeated investigation appeared *first*, so a failed first run permanently shadowed a later successful re-run of the same scenario — fixed to keep the highest-confidence occurrence per dedup group (see `docs/components/04-training-data-pipeline.md` §8). Both fixes are already applied in `src/agent/diagnostic_agent.py` and `src/training/dedup.py`.
+- **2026-07-26**: `data/sft/*.jsonl` and `data/dpo/train.jsonl` (small, curated) are committed to git as portfolio evidence; `data/raw/traces.jsonl` (large, ever-growing, unfiltered source) and the true scratch intermediates (`data/processed/traces_deduped.jsonl`, `data/processed/sft_all.jsonl`) stay gitignored.
 
 ## What's Next
 
-Phase 0 and Phase 1 are done and verified. Next up is Phase 2 (Training Data
-Pipeline): `TraceRecorder`/`TraceConverter` to convert agent investigation
-traces into ShareGPT-format SFT data, `DPOPairGenerator` for human-correction
-preference pairs, dedup + confidence filtering, and dataset stats — all still
-Mac-local, no cloud GPU needed. Feed it by running `scripts/run_agent_demo.py`
-(or a similar driver) repeatedly to accumulate traces, or by wiring
-`TraceRecorder.record()` directly into the demo script.
+Phase 0, 1, and 2 are done and verified. Next up is Phase 3 (Eval Harness):
+`DiagnosticEval` + the 10 labeled tasks, `TrajectoryGrader` (tool-use-order
+scoring), `LLMJudge` (reasoning-quality scoring via local Ollama) — establishes
+the zero-shot baseline accuracy number that Phase 4 fine-tuning must beat.
+Still Mac-local, no cloud GPU needed.
