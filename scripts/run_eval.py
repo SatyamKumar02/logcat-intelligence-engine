@@ -31,13 +31,19 @@ from src.eval.report import write_report
 load_dotenv()
 
 
-def build_client_and_model() -> tuple[OpenAI, str]:
+def build_client_and_model(base_url: str | None = None, model: str | None = None) -> tuple[OpenAI, str]:
+    """Build the eval client, defaulting to local Ollama but overridable.
+
+    The --base-url/--model CLI args let the flywheel (scripts/weekly_retrain.sh)
+    point this at a freshly deployed vLLM server serving a fine-tuned
+    checkpoint instead of always evaluating the dev-time Ollama backbone.
+    """
     client = OpenAI(
-        base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:11434/v1"),
+        base_url=base_url or os.environ.get("OPENAI_BASE_URL", "http://localhost:11434/v1"),
         api_key="ollama",
     )
-    model = os.environ.get("AGENT_MODEL", "qwen2.5:7b")
-    return client, model
+    resolved_model = model or os.environ.get("AGENT_MODEL", "qwen2.5:7b")
+    return client, resolved_model
 
 
 def build_agent(client: OpenAI, model: str) -> DiagnosticAgent:
@@ -54,9 +60,12 @@ def main() -> None:
     parser.add_argument("--output-md", default="eval_results_baseline.md")
     parser.add_argument("--output-json", default="eval_results_baseline.json")
     parser.add_argument("--skip-judge", action="store_true", help="Skip LLM-as-judge scoring for faster iteration")
+    parser.add_argument("--base-url", default=None, help="Override the OpenAI-compatible base URL (default: Ollama)")
+    parser.add_argument("--model", default=None, help="Override the model identifier (default: AGENT_MODEL env or qwen2.5:7b)")
+    parser.add_argument("--title", default="Eval Results — Baseline (Zero-Shot)", help="Report title")
     args = parser.parse_args()
 
-    client, model = build_client_and_model()
+    client, model = build_client_and_model(base_url=args.base_url, model=args.model)
     agent = build_agent(client, model)
     judge = None if args.skip_judge else LLMJudge(client=client, model=model)
 
@@ -78,7 +87,7 @@ def main() -> None:
     print(f"Avg trajectory score: {summary.avg_trajectory_score:.2f}")
     print(f"Avg judge score:      {summary.avg_judge_score:.1f} / 10")
 
-    write_report(summary, args.output_md, title="Eval Results — Baseline (Zero-Shot)")
+    write_report(summary, args.output_md, title=args.title)
     print(f"\nMarkdown report written to {args.output_md}")
 
     with open(args.output_json, "w") as f:

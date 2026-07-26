@@ -1,6 +1,6 @@
 # Component: The Flywheel (Auto-Retrain + Regression Gate)
 
-**Status: PLANNED (Phase 6)** — target files: `src/flywheel/auto_trigger.py`, `src/flywheel/regression_gate.py`, `src/flywheel/version_tracker.py`, `scripts/weekly_retrain.sh`
+**Status: IMPLEMENTED (Python logic); orchestration script written but not run end-to-end** — `src/flywheel/auto_trigger.py`, `src/flywheel/regression_gate.py`, `src/flywheel/version_tracker.py`, `scripts/weekly_retrain.sh`
 
 This is the component that closes the loop and turns everything else into a
 *system that improves itself* rather than a one-time fine-tuning exercise.
@@ -161,20 +161,78 @@ system is in steady-state production use, not a hardcoded schedule.
 
 ## 5. Version Tracking
 
-`version_tracker.py` (planned) — records each deployed version's tag and
-accuracy (the same JSON file `regression_gate.py` reads as
-`previous_accuracy_path`), building up a history like:
+`version_tracker.py` — not detailed in the source capstone spec's reference
+code (only mentioned in its file structure), so this is an original design.
+It keeps a **separate, append-only** JSONL history (`record_version()`,
+`load_version_history()`, `get_latest_version()`, `format_history_table()`)
+rather than overloading `regression_gate.py`'s single-file
+`last_deployed_accuracy.json` — that file only ever needs the *immediately
+previous* version to make one gate decision, while this module keeps the
+*full* history, which is what the human-readable trend view actually needs.
+Verified locally (`load_version_history`/`get_latest_version`/
+`format_history_table` all tested against a real 3-version sequence) and
+produces exactly the capstone doc's expected format:
 
 ```
-v1 (baseline QLoRA)  — accuracy: 70% — deployed 2026-08-15
-v2 (+100 new traces) — accuracy: 74% — deployed 2026-08-22
-v3 (+100 new traces) — accuracy: 77% — deployed 2026-08-29
+v1 — accuracy: 70% — deployed 2026-07-26 — baseline QLoRA
+v2 — accuracy: 74% — deployed 2026-07-26 — +100 new traces
+v3 — accuracy: 77% — deployed 2026-07-26 — +100 new traces
 ```
 
 This history is itself a portfolio artifact — a visible, monotonic(-ish)
 accuracy trend across retrain cycles is the concrete evidence that the
 flywheel claim ("the system improves itself over time") is real and not just
-architectural aspiration.
+architectural aspiration. (The dates above are identical because the test
+ran all three `record_version()` calls back to back in one session — a real
+multi-week deployment history would naturally spread them out.)
+
+---
+
+## 5b. Verified Locally (2026-07-26)
+
+Unlike Phase 4/5, everything here is plain Mac-local Python + bash — no GPU
+needed — so it was tested for real, not just written:
+
+**`auto_trigger.py`**, against real temp files and real (fake) shell
+scripts:
+- Below threshold (50/100 examples) → not triggered, no watermark written.
+- Above threshold, retrain script exits 1 → not triggered, watermark
+  **not** advanced (confirms a failed run gets retried next check, not
+  silently skipped).
+- Above threshold, retrain script exits 0 → triggered, watermark advances
+  to the new total; a subsequent check correctly reports 0 new examples.
+- The `--once` CLI flag tested end to end, including the "watch dir doesn't
+  exist yet" case (prints a wait message instead of crashing).
+
+**`regression_gate.py`**, five scenarios against real temp files:
+no-previous-version pass, below-floor rejection, small-regression-within-
+tolerance pass, large-regression rejection, and improvement pass — all five
+returned the expected `(bool, reason)`.
+
+**`version_tracker.py`**: empty-history edge cases, then a real 3-version
+`record_version()` sequence — `load_version_history()`, `get_latest_version()`,
+and `format_history_table()` all returned correct results (see
+[Section 5](#5-version-tracking) for the actual output).
+
+**`scripts/weekly_retrain.sh`**: `bash -n` syntax-checked clean. Its
+embedded step-5 Python block (the regression-gate + version-tracker wiring,
+after simulating bash's `${MODEL_VERSION}` substitution) was extracted and
+`ast.parse()`-checked, then **actually run** against a simulated
+`eval_results_vX.json` for both outcomes: a passing accuracy (0.82) correctly
+wrote `last_deployed_accuracy.json` + appended to `version_history.jsonl`
+and exited 0; a failing accuracy (0.40, below `ACCURACY_FLOOR`) correctly
+printed "Deploy decision: False" and exited 1 — which, under the script's
+`set -euo pipefail`, would halt before ever reaching the `docker build`
+step. Steps 1-4 (dedup/convert, QLoRA SFT, merge, eval) call real scripts
+from Phases 2-5 that this repo already has, but the script as a whole has
+**not** been run end to end, since steps 2-3 need a CUDA GPU this Mac
+doesn't have.
+
+**`scripts/run_eval.py`** gained `--base-url`/`--model`/`--title` overrides
+specifically so `weekly_retrain.sh` can evaluate a freshly deployed
+fine-tuned checkpoint instead of always defaulting to the dev-time Ollama
+backbone — a small but necessary Phase 3 extension discovered while wiring
+Phase 6 together.
 
 ---
 
@@ -193,3 +251,8 @@ architectural aspiration.
 - "A failed regression-gate check is a safe no-op, not a rollback scramble —
   the currently deployed image is simply left alone, and the failed
   checkpoint stays around for debugging."
+- "This component doesn't need a GPU, so unlike Phase 4/5 I held it to the
+  same bar as the fully local phases — every threshold, every gate
+  decision, and the failure-doesn't-lose-progress watermark behavior are
+  tested against real temp files and real subprocess exit codes, not just
+  reasoned about."

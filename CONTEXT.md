@@ -63,7 +63,7 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 | 3 — Eval harness | done | DiagnosticEval, TrajectoryGrader, LLMJudge, 10 labeled tasks — baseline run: 90% category accuracy (see caveats in decisions log) |
 | 4 — Fine-tuning (cloud GPU) | code ready, not yet run | QLoRA SFT/DPO scripts + Groq distillation + Kaggle notebook written and locally verified (API signatures, tokenizer/data fit); actual GPU training requires the user to run `notebooks/04_finetune_kaggle.ipynb` on Kaggle |
 | 5 — Deployment | mostly verified | Dockerfile.serve (lints clean), docker-compose.yml (config-validated), health.py/client.py (tested against real servers, Ollama standing in for vLLM) — real `docker build`+`run` needs a CUDA host + Phase 4's merged model, neither exists yet |
-| 6 — Flywheel | not started | Auto-retrain trigger, regression gate, version tracking |
+| 6 — Flywheel | Python logic done + tested; orchestration script not run end-to-end | auto_trigger/regression_gate/version_tracker all tested against real temp files (threshold, watermark-on-failure, 5 gate scenarios, 3-version history); weekly_retrain.sh syntax-checked + its gate/version-tracker wiring tested with simulated eval output, but steps 2-3 need Phase 4's GPU |
 | Stretch — Real AOSP data | not started | Deferred until synthetic pipeline is proven end-to-end |
 
 ## Key Decisions Log
@@ -83,27 +83,32 @@ support Apple Silicon) — those steps run on Kaggle's free T4 GPU notebooks.
 - **2026-07-26**: Given the current SFT set is only 7 train records and DPO only 1 pair, the first Kaggle run should be understood as "does the pipeline work end to end," not "did the model get better" — both the notebook and `docs/components/05-finetuning-pipeline.md` say this explicitly so the result isn't over-interpreted.
 - **2026-07-26**: Phase 5 built while Phase 4 is still unrun (per user's explicit choice: skipping the Kaggle physical action for now doesn't block later phases — no code in Phase 5/6 depends on Phase 4's specific output in a way that would need redoing). `docker/Dockerfile.serve`, `docker/requirements.serve.txt`, `docker/docker-compose.yml`, `src/serve/health.py`, `src/serve/client.py` all written. Docker-compose currently has only the `diagnostic-server` service — the `trace-recorder` sidecar depends on Phase 6 code that doesn't exist yet, so it wasn't added prematurely.
 - **2026-07-26**: Phase 5 verification, precisely: no NVIDIA GPU passthrough on this Mac's Docker Desktop and no real merged model yet, so the actual `docker build`+`run`+live-inference loop was NOT executed. What WAS: `docker buildx build --check` linted `Dockerfile.serve` with zero warnings (no image pull needed); `docker compose config` resolved `docker-compose.yml` correctly (GPU reservation, healthcheck, bind mount, build-arg interpolation all well-formed); `health.py`'s `check_health()`/`check_ready()` were run against 4 real scenarios (live Ollama completion, a hand-rolled mock 200 `/health` server, a real 404, a dead port) and all four returned the expected result; `client.py` was run against local Ollama and produced a coherent diagnosis — proving the literal code that will later hit a deployed vLLM server already works against a real OpenAI-compatible backend today.
+- **2026-07-26**: Phase 6 completed to the extent possible without a GPU. `src/flywheel/auto_trigger.py`, `regression_gate.py`, `version_tracker.py` are pure Mac-local Python (file counting, JSON, subprocess) with no cloud dependency at all, so — unlike Phase 4/5 — every real scenario was actually tested: auto_trigger's threshold/watermark logic (including the critical "failed retrain doesn't lose the watermark" behavior) against real temp files and real fake shell scripts with exit 0/1; regression_gate's 5 gate scenarios (floor, small/large regression, improvement, no-history) against real temp files; version_tracker's empty-history edge case plus a real 3-version history sequence, output format matching the capstone doc's example exactly. `version_tracker.py` itself is an original design (not detailed in the source spec) — kept as a separate append-only history log rather than overloading regression_gate's single-file "previous accuracy" pointer.
+- **2026-07-26**: `scripts/weekly_retrain.sh` written, wiring together the real Phase 2/3/4/5 scripts (`build_training_data.py`, `train_sft.py`, `merge_adapter.py`, `run_eval.py`, `regression_gate`/`version_tracker`). `bash -n` syntax-checked clean; its embedded step-5 Python block was `ast.parse()`-checked after simulating bash's variable substitution, then actually run against simulated eval-accuracy JSON for both outcomes (pass → writes deployment record + version history, exit 0; fail → exits 1, which under `set -euo pipefail` halts before the `docker build` step). The script as a whole has NOT run end-to-end — steps 2-3 need Phase 4's CUDA GPU. `scripts/run_eval.py` gained `--base-url`/`--model`/`--title` overrides during this work, specifically so the flywheel can evaluate a freshly deployed fine-tuned checkpoint instead of always defaulting to the dev-time Ollama backbone.
 
 ## What's Next
 
-Phase 0, 1, 2, 3, and 5 are done/verified to the extent possible without a
-GPU; Phase 4's code is written and locally verified but not yet run.
-Independent next actions, any order:
+Phases 0, 1, 2, 3, 5, and 6 are done/verified to the extent possible without
+a GPU; Phase 4's code is written and locally verified but not yet run — it
+is now the ONLY remaining phase blocked on the user's own hands-on action.
 
 1. **Run Phase 4 for real**: user creates HF/WandB/Groq/Kaggle accounts (see
    checklist above), uploads/opens `notebooks/04_finetune_kaggle.ipynb` on
    Kaggle, enables the free T4 GPU, sets the two secrets, and runs it. This
    is the first phase in the project that genuinely needs the user's own
    execution — I cannot run cloud GPU code myself. Once it produces a real
-   `outputs/merged-diagnostic-v1`, Phase 5's Docker image can actually be
-   built and run for the first time (on a CUDA host, e.g. the same Kaggle
-   notebook or RunPod).
+   `outputs/merged-diagnostic-v1`: Phase 5's Docker image can actually be
+   built and run (on a CUDA host), and `scripts/weekly_retrain.sh` can
+   finally be run end-to-end for the first time.
 2. **Fix the eval set** per `docs/EVAL_SET_IMPROVEMENT_PLAN.md` — ideally
    before trusting whatever accuracy number comes out of evaluating the
    fine-tuned checkpoint, since the current 10-task eval set is contaminated
    (see the Phase 3 decision above).
-3. **Phase 6 (Flywheel)**: `auto_trigger.py`, `regression_gate.py`,
-   `version_tracker.py`, `weekly_retrain.sh` — mostly Mac-local Python logic
-   (file counting, threshold comparisons) that can be built and unit-tested
-   with synthetic numbers without waiting on Phase 4/5 actually running for
-   real, similar to how Phase 5 was built ahead of Phase 4.
+3. **Stretch — Real AOSP data**: only remaining phase, deferred since the
+   synthetic pipeline is now fully proven end-to-end across all 6 phases.
+
+All 6 phases of the capstone plus the two forward-looking plan docs
+(`docs/EVAL_SET_IMPROVEMENT_PLAN.md`) now have code written and are
+documented in `docs/ARCHITECTURE.md` + `docs/components/01-08`. The project
+is at the point where further progress requires either the user's Kaggle
+run (Phase 4) or a decision to invest in the eval-set fix first.

@@ -158,7 +158,7 @@ Walking one investigation through the whole (eventual) pipeline, using the
 8. *(Planned)* A human engineer reviews the diagnosis in a review UI/CLI — approves it, or corrects it.
    - Approved + confidence ≥ 0.5 → `TraceConverter` turns it into a ShareGPT-format SFT record in `data/sft/train.jsonl`.
    - Corrected → `DPOPairGenerator` creates a preference pair: `chosen=human correction`, `rejected=original model diagnosis`, written to `data/dpo/train.jsonl`.
-9. *(Planned)* Once 100 new verified traces accumulate, `flywheel/auto_trigger.py` kicks off `scripts/weekly_retrain.sh`: QLoRA SFT → DPO → merge adapter → run `DiagnosticEval` → `regression_gate.should_deploy()` decides whether to rebuild the Docker image.
+9. Once 100 new verified traces accumulate, `flywheel/auto_trigger.py` kicks off `scripts/weekly_retrain.sh`: dedup/convert → QLoRA SFT → merge adapter → run `DiagnosticEval` → `regression_gate.should_deploy()` decides whether to rebuild the Docker image. The trigger/gate/version-tracking logic is implemented and tested; the script's GPU-dependent steps (Phase 4) haven't been run for real yet.
 10. *(Planned)* If the gate passes, a new versioned Docker image (`logcat-ie-serve:vN`) is built with the merged weights baked in, and vLLM serves it — airgapped, OpenAI-compatible `/v1/chat/completions`.
 
 ---
@@ -277,7 +277,7 @@ logcat-intelligence-engine/
 │   ├── eval/                   # DiagnosticEval, TrajectoryGrader, LLMJudge, report — IMPLEMENTED
 │   ├── finetune/               # QLoRA config, train_sft/train_dpo, distill, merge_adapter — CODE READY, not yet run on GPU
 │   ├── serve/                   # health check, example client — verified against real servers (Ollama stand-in)
-│   └── flywheel/               # auto_trigger, regression_gate, version_tracker — PLANNED (Phase 6)
+│   └── flywheel/                # auto_trigger, regression_gate, version_tracker — IMPLEMENTED + tested (no GPU needed)
 ├── scripts/                     # validate_env, generate_synthetic_logs, build_case_index, run_agent_demo
 └── docker/                      # Dockerfile.serve (lints clean), requirements.serve.txt, docker-compose.yml (config-validated)
                                   # (no Dockerfile.train -- Kaggle notebooks fill that role instead, see notebooks/04_finetune_kaggle.ipynb)
@@ -307,5 +307,5 @@ logcat-intelligence-engine/
 - QLoRA + DPO + distillation (planned) → [`components/05-finetuning-pipeline.md`](components/05-finetuning-pipeline.md)
 - Eval harness, trajectory grading, LLM judge → [`components/06-eval-harness.md`](components/06-eval-harness.md)
 - vLLM + airgapped Docker (planned) → [`components/07-deployment-serving.md`](components/07-deployment-serving.md)
-- Auto-retrain flywheel + regression gate (planned) → [`components/08-flywheel.md`](components/08-flywheel.md)
+- Auto-retrain flywheel + regression gate → [`components/08-flywheel.md`](components/08-flywheel.md)
 - Live phase status, decisions log → `CONTEXT.md` (project root)
