@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Logcat Intelligence Engine</title>
+<meta name="description" content="A self-improving AI diagnostic system for Android OS logs -- ReAct agent, RAG, QLoRA fine-tuning, eval harness, airgapped deployment." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔎</text></svg>" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="container">
+    <p class="eyebrow">AI / ML Capstone Project &mdash; built for $0</p>
+    <h1>Logcat Intelligence Engine</h1>
+    <p class="pitch">
+      A self-improving AI diagnostic system for Android OS logs: a ReAct agent
+      diagnoses root causes from logcat/dmesg artifacts using specialized tools,
+      every investigation becomes training data, a local 7B model gets fine-tuned
+      with QLoRA + DPO, an eval harness gates deployment, and the model serves via
+      an airgapped Docker image. This page replays <strong>real captured data</strong>
+      from the project &mdash; nothing here is staged.
+    </p>
+    <div class="hero-links">
+      <a class="btn btn-primary" href="https://github.com/SatyamKumar02/logcat-intelligence-engine" target="_blank" rel="noopener">View on GitHub</a>
+      <a class="btn" href="https://github.com/SatyamKumar02/logcat-intelligence-engine/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Full Architecture Doc</a>
+      <a class="btn" href="https://github.com/SatyamKumar02/logcat-intelligence-engine/blob/main/CONTEXT.md" target="_blank" rel="noopener">Live Project Status</a>
+    </div>
+  </div>
+</header>
+
+<nav class="tabbar">
+  <div class="container tabbar-inner">
+    <a href="#architecture">Architecture</a>
+    <a href="#replay">Investigation Replay</a>
+    <a href="#eval">Eval Results</a>
+    <a href="#flywheel">Flywheel &amp; Phases</a>
+  </div>
+</nav>
+
+<main class="container">
+
+  <section id="architecture" class="section">
+    <h2>Architecture</h2>
+    <p class="section-note">Same diagram source as <code>docs/ARCHITECTURE.md</code> &mdash; rendered live in your browser, not a static image.</p>
+    <div class="diagram-card">
+      <pre class="mermaid" id="mermaid-architecture">flowchart TD
+    subgraph Input["Log Input"]
+        LC[logcat file]
+        DM[dmesg file]
+        BR[bugreport ZIP]
+    end
+
+    subgraph Agent["Agentic Diagnosis Engine — IMPLEMENTED"]
+        AG["DiagnosticAgent\nReAct loop (src/agent/diagnostic_agent.py)"]
+        T1["LogcatParserTool"]
+        T2["DmesgParserTool"]
+        T3["PatternSearchTool"]
+        T4["RAGRetrieverTool\n(FAISS + sentence-transformers)"]
+        AG -->|Action| T1
+        AG -->|Action| T2
+        AG -->|Action| T3
+        AG -->|Action| T4
+        T1 -->|Observation| AG
+        T2 -->|Observation| AG
+        T3 -->|Observation| AG
+        T4 -->|Observation| AG
+    end
+
+    subgraph LLM["Agent Backbone — IMPLEMENTED ($0)"]
+        OLLAMA["Ollama, local\nqwen2.5:7b"]
+    end
+
+    subgraph Training["Training Data Pipeline — IMPLEMENTED"]
+        TL["TraceRecorder\nJSON step recorder"]
+        TC["TraceConverter\nShareGPT format"]
+        DPO["DPOPairGenerator\nhuman vs model"]
+        SFT["SFT Dataset"]
+        PREF["Preference Dataset"]
+    end
+
+    subgraph FineTune["Fine-Tuning Pipeline — CODE READY, NOT YET RUN (cloud GPU)"]
+        FT["QLoRA Fine-Tuning\nQwen2.5-7B"]
+        DIST["Distillation\nGroq Llama-3.3-70B teacher"]
+        DPOT["DPO Training"]
+    end
+
+    subgraph Eval["Eval Harness — IMPLEMENTED"]
+        DE["DiagnosticEval\noutcome grader"]
+        TG["TrajectoryGrader\ntool use checker"]
+        LJ["LLMJudge\nreasoning quality (Ollama)"]
+        RG{"Regression Gate\naccuracy threshold"}
+    end
+
+    subgraph Deploy["Deployment — MOSTLY VERIFIED (Phase 5)"]
+        VLLM["vLLM Server\nOpenAI-compatible"]
+        DOCK["Airgapped Docker\nno internet required"]
+        VLLM --> DOCK
+    end
+
+    subgraph Review["Human Review — PLANNED"]
+        HR["Engineer Review\napprove or correct"]
+    end
+
+    Input --> AG
+    OLLAMA -.->|serves| AG
+    AG --> Diag["Diagnosis\nroot cause + reasoning + confidence"]
+    Diag --> HR
+    Diag --> TL
+    TL --> TC --> SFT
+    HR --> DPO --> PREF
+    SFT --> FT
+    PREF --> DPOT
+    DIST --> FT
+    FT --> DE
+    DPOT --> DE
+    DE --> TG --> LJ --> RG
+    RG -->|pass| VLLM
+    RG -->|fail| FT
+    VLLM -->|new cases| TL</pre>
+    </div>
+  </section>
+
+  <section id="replay" class="section">
+    <h2>Investigation Replay</h2>
+    <p class="section-note">
+      Replaying <strong>real recorded ReAct traces</strong> captured by running the actual
+      <code>DiagnosticAgent</code> against local Ollama (see <code>data/sft/*.jsonl</code>) &mdash;
+      not a live agent. Pick a scenario and step through its reasoning.
+    </p>
+
+    <div class="replay-widget">
+      <div class="replay-picker" id="replay-picker" role="tablist" aria-label="Scenario picker"></div>
+
+      <div class="replay-viewer">
+        <div class="replay-meta">
+          <span class="badge" id="replay-category">&mdash;</span>
+          <span id="replay-description" class="replay-description"></span>
+        </div>
+
+        <div class="replay-steps" id="replay-steps"></div>
+
+        <div class="replay-controls">
+          <button id="replay-prev" class="btn">&larr; Prev</button>
+          <span id="replay-progress" class="replay-progress">Step 0 / 0</span>
+          <button id="replay-next" class="btn btn-primary">Next &rarr;</button>
+          <button id="replay-autoplay" class="btn">&#9654; Autoplay</button>
+        </div>
+
+        <div class="final-answer" id="replay-final" hidden>
+          <h4>Final Answer</h4>
+          <pre id="replay-final-json"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="eval" class="section">
+    <h2>Eval Results</h2>
+    <p class="section-note">From <code>eval_results_baseline.json</code>, produced by <code>scripts/run_eval.py</code> against the zero-shot agent.</p>
+
+    <div class="stat-tiles" id="eval-tiles"></div>
+
+    <div class="callout callout-warning" id="eval-caveat"></div>
+
+    <div class="table-wrap">
+      <table class="data-table" id="eval-table">
+        <thead>
+          <tr>
+            <th>Task</th><th>Expected</th><th>Predicted</th><th>Correct</th>
+            <th>Keyword Hit Rate</th><th>Confidence</th><th>Trajectory</th><th>Judge</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="flywheel" class="section">
+    <h2>Flywheel &amp; Phase Status</h2>
+    <p class="section-note">All 6 capstone phases, current status (mirrors <code>CONTEXT.md</code>).</p>
+
+    <div class="phase-strip" id="phase-strip"></div>
+
+    <div class="diagram-card">
+      <pre class="mermaid" id="mermaid-flywheel">flowchart TD
+    PROD["Deployed vLLM server\n(07-deployment-serving.md)"]
+    NEWCASES["New investigations\n(production usage)"]
+    TRACES["data/raw/traces.jsonl\n(growing)"]
+    PROD --> NEWCASES --> TRACES
+
+    subgraph Trigger["auto_trigger.py"]
+        COUNT["count_new_examples()\ntotal - last_known_count"]
+        CHECK{"new_count >= 100?"}
+        COUNT --> CHECK
+    end
+    TRACES --> COUNT
+
+    CHECK -->|no| WAIT["Not enough new examples\n(no-op)"]
+    CHECK -->|yes| RETRAIN["scripts/weekly_retrain.sh"]
+
+    subgraph Pipeline["weekly_retrain.sh (5 steps)"]
+        S1["1. Convert traces\n-> data/sft/train.jsonl"]
+        S2["2. QLoRA SFT training\n(train_sft.py)"]
+        S3["3. Merge adapter\n(merge_adapter.py)"]
+        S4["4. Run eval harness\n(run_eval.py)"]
+        S5["5. Regression gate check"]
+        S1 --> S2 --> S3 --> S4 --> S5
+    end
+    RETRAIN --> S1
+
+    subgraph Gate["regression_gate.should_deploy()"]
+        FLOOR{"accuracy >= 0.65\n(ACCURACY_FLOOR)?"}
+        REGRESS{"accuracy >= prev_accuracy - 0.05\n(MAX_REGRESSION)?"}
+        FLOOR -->|no| REJECT["Block deployment"]
+        FLOOR -->|yes| REGRESS
+        REGRESS -->|no| REJECT
+        REGRESS -->|yes| ACCEPT["Approve deployment"]
+    end
+    S5 --> FLOOR
+
+    ACCEPT --> BUILD["docker build\nnew tagged image\nlogcat-ie-serve:vN"]
+    ACCEPT --> RECORD["version_tracker.py\nrecord_deployment()"]
+    REJECT --> KEEPOLD["Keep serving current version\n(no image rebuild)"]
+
+    BUILD --> PROD</pre>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <p>
+      <a href="https://github.com/SatyamKumar02/logcat-intelligence-engine" target="_blank" rel="noopener">GitHub Repo</a>
+      &middot;
+      <a href="https://github.com/SatyamKumar02/logcat-intelligence-engine/blob/main/CONTEXT.md" target="_blank" rel="noopener">CONTEXT.md</a>
+      &middot;
+      <a href="https://github.com/SatyamKumar02/logcat-intelligence-engine/tree/main/docs/components" target="_blank" rel="noopener">Component Deep-Dives</a>
+    </p>
+    <p class="footer-note">Static showcase &mdash; no backend, no live agent. Built from real captured traces and real eval output, not staged demo data.</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

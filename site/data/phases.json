@@ -1,0 +1,52 @@
+{
+  "phases": [
+    {
+      "phase": "0",
+      "name": "Environment setup",
+      "status": "done",
+      "note": "Ollama (qwen2.5:7b), venv, folder structure, git init"
+    },
+    {
+      "phase": "1",
+      "name": "Agentic diagnosis engine",
+      "status": "done",
+      "note": "Parsers, tools (incl. FAISS RAG), ReAct DiagnosticAgent verified end-to-end"
+    },
+    {
+      "phase": "2",
+      "name": "Training data pipeline",
+      "status": "done",
+      "note": "TraceRecorder/Converter, DPOPairGenerator, dedup+quality filter, stats"
+    },
+    {
+      "phase": "3",
+      "name": "Eval harness",
+      "status": "done",
+      "note": "DiagnosticEval, TrajectoryGrader, LLMJudge -- baseline 90% (see caveat)"
+    },
+    {
+      "phase": "4",
+      "name": "Fine-tuning (cloud GPU)",
+      "status": "code-ready-not-run",
+      "note": "QLoRA SFT/DPO + Groq distillation + Kaggle notebook -- needs a real Kaggle run"
+    },
+    {
+      "phase": "5",
+      "name": "Deployment",
+      "status": "mostly-verified",
+      "note": "Airgapped Dockerfile lints clean, compose validates, health/client tested vs Ollama"
+    },
+    {
+      "phase": "6",
+      "name": "Flywheel",
+      "status": "logic-tested-not-e2e",
+      "note": "Auto-retrain trigger, regression gate, version tracker -- all tested locally"
+    },
+    {
+      "phase": "stretch",
+      "name": "Real AOSP data",
+      "status": "not-started",
+      "note": "Deferred until synthetic pipeline is proven end-to-end (it now is)"
+    }
+  ]
+}
